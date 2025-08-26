@@ -127,14 +127,12 @@ class HaystackSpanProcessor(SimpleSpanProcessor):
 
         mlflow_span._span._name = comp_type or comp_alias or span.name
 
-        inputs = span.attributes.get("haystack.component.input")
-        outputs = span.attributes.get("haystack.component.output")
-        if inputs is not None:
+        if (inputs := span.attributes.get("haystack.component.input")) is not None:
             try:
                 mlflow_span.set_inputs(json.loads(inputs))
             except Exception:
                 mlflow_span.set_inputs(inputs)
-        if outputs is not None:
+        if (outputs := span.attributes.get("haystack.component.output")) is not None:
             try:
                 mlflow_span.set_outputs(json.loads(outputs))
             except Exception:
