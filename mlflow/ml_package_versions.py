@@ -166,16 +166,6 @@ _ML_PACKAGE_VERSIONS = {
             "maximum": "1.4.0"
         }
     },
-    "haystack": {
-        "package_info": {
-            "pip_release": "haystack-ai",
-            "module_name": "haystack"
-        },
-        "autologging": {
-            "minimum": "2.0.0",
-            "maximum": "2.10.0"
-        }
-    },
     "mistral": {
         "package_info": {
             "pip_release": "mistralai",
@@ -428,6 +418,16 @@ _ML_PACKAGE_VERSIONS = {
             "maximum": "4.55.2"
         }
     },
+    "haystack": {
+        "package_info": {
+            "pip_release": "haystack-ai",
+            "module_name": "haystack"
+        },
+        "autologging": {
+            "minimum": "2.0.0",
+            "maximum": "2.10.0"
+        }
+    },
     "sentence_transformers": {
         "package_info": {
             "pip_release": "sentence-transformers"
@@ -477,7 +477,6 @@ GENAI_FLAVOR_TO_MODULE_NAME = {
     "pydantic_ai": "pydantic_ai",
     "smolagents": "smolagents",
     "strands": "strands",
-    "haystack": "haystack",
     "mistral": "mistralai",
     "litellm": "litellm",
     "groq": "groq",
@@ -497,6 +496,7 @@ NON_GENAI_FLAVOR_TO_MODULE_NAME = {
     "spark": "pyspark",
     "paddle": "paddle",
     "transformers": "transformers",
+    "haystack": "haystack",
     "pyspark.ml": "pyspark"
 }
 
