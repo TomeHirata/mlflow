@@ -9,7 +9,7 @@ from mlflow.genai.prompts import register_prompt
 from mlflow.genai.scorers import scorer
 
 
-class MockPromptAdapter(BasePromptOptimizer):
+class MockPromptOptimizer(BasePromptOptimizer):
     def __init__(self, reflection_model="openai:/gpt-4o-mini"):
         self.model_name = reflection_model
 
@@ -98,8 +98,8 @@ def equivalence(outputs, expectations):
     return 1.0 if outputs == expectations["expected_response"] else 0.0
 
 
-def test_adapt_prompts_single_prompt(sample_translation_prompt, sample_dataset):
-    mock_adapter = MockPromptAdapter()
+def test_optimize_prompts_single_prompt(sample_translation_prompt, sample_dataset):
+    mock_optimizer = MockPromptOptimizer()
 
     result = optimize_prompts(
         predict_fn=sample_predict_fn,
@@ -107,7 +107,7 @@ def test_adapt_prompts_single_prompt(sample_translation_prompt, sample_dataset):
         prompt_uris=[
             f"prompts:/{sample_translation_prompt.name}/{sample_translation_prompt.version}"
         ],
-        optimizer=mock_adapter,
+        optimizer=mock_optimizer,
         scorers=[equivalence],
     )
 
@@ -122,10 +122,10 @@ def test_adapt_prompts_single_prompt(sample_translation_prompt, sample_dataset):
     assert result.final_eval_score == 0.9
 
 
-def test_adapt_prompts_multiple_prompts(
+def test_optimize_prompts_multiple_prompts(
     sample_translation_prompt, sample_summarization_prompt, sample_dataset
 ):
-    mock_adapter = MockPromptAdapter()
+    mock_optimizer = MockPromptOptimizer()
 
     result = optimize_prompts(
         predict_fn=sample_predict_fn,
@@ -134,7 +134,7 @@ def test_adapt_prompts_multiple_prompts(
             f"prompts:/{sample_translation_prompt.name}/{sample_translation_prompt.version}",
             f"prompts:/{sample_summarization_prompt.name}/{sample_summarization_prompt.version}",
         ],
-        optimizer=mock_adapter,
+        optimizer=mock_optimizer,
         scorers=[equivalence],
     )
 
@@ -149,8 +149,8 @@ def test_adapt_prompts_multiple_prompts(
         assert "Be precise and accurate." in prompt.template
 
 
-def test_adapt_prompts_eval_function_behavior(sample_translation_prompt, sample_dataset):
-    class TestingAdapter(BasePromptOptimizer):
+def test_optimize_prompts_eval_function_behavior(sample_translation_prompt, sample_dataset):
+    class TestingOptimizer(BasePromptOptimizer):
         def __init__(self):
             self.model_name = "openai:/gpt-4o-mini"
             self.eval_fn_calls = []
@@ -191,7 +191,7 @@ def test_adapt_prompts_eval_function_behavior(sample_translation_prompt, sample_
 
         return sample_predict_fn(input_text=input_text, language=language)
 
-    testing_adapter = TestingAdapter()
+    testing_optimizer = TestingOptimizer()
 
     optimize_prompts(
         predict_fn=predict_fn,
@@ -199,18 +199,20 @@ def test_adapt_prompts_eval_function_behavior(sample_translation_prompt, sample_
         prompt_uris=[
             f"prompts:/{sample_translation_prompt.name}/{sample_translation_prompt.version}"
         ],
-        optimizer=testing_adapter,
+        optimizer=testing_optimizer,
         scorers=[equivalence],
     )
 
-    assert len(testing_adapter.eval_fn_calls) == 1
-    _, eval_results = testing_adapter.eval_fn_calls[0]
+    assert len(testing_optimizer.eval_fn_calls) == 1
+    _, eval_results = testing_optimizer.eval_fn_calls[0]
     assert len(eval_results) == 3  # Number of records in sample_dataset
     assert predict_called_count == 4  # 3 records in sample_dataset + 1 for the prediction check
 
 
-def test_adapt_prompts_with_list_dataset(sample_translation_prompt, sample_summarization_dataset):
-    mock_adapter = MockPromptAdapter()
+def test_optimize_prompts_with_list_dataset(
+    sample_translation_prompt, sample_summarization_dataset
+):
+    mock_optimizer = MockPromptOptimizer()
 
     def summarization_predict_fn(text):
         return f"Summary: {text[:10]}..."
@@ -221,7 +223,7 @@ def test_adapt_prompts_with_list_dataset(sample_translation_prompt, sample_summa
         prompt_uris=[
             f"prompts:/{sample_translation_prompt.name}/{sample_translation_prompt.version}"
         ],
-        optimizer=mock_adapter,
+        optimizer=mock_optimizer,
         scorers=[equivalence],
     )
 
@@ -230,15 +232,15 @@ def test_adapt_prompts_with_list_dataset(sample_translation_prompt, sample_summa
     assert result.final_eval_score == 0.9
 
 
-def test_adapt_prompts_with_model_name(sample_translation_prompt, sample_dataset):
-    class TestAdapter(BasePromptOptimizer):
+def test_optimize_prompts_with_model_name(sample_translation_prompt, sample_dataset):
+    class TestOptimizer(BasePromptOptimizer):
         def __init__(self):
             self.model_name = "test/custom-model"
 
         def optimize(self, eval_fn, dataset, target_prompts):
             return PromptOptimizerOutput(optimized_prompts=target_prompts)
 
-    testing_adapter = TestAdapter()
+    testing_optimizer = TestOptimizer()
 
     result = optimize_prompts(
         predict_fn=sample_predict_fn,
@@ -246,14 +248,14 @@ def test_adapt_prompts_with_model_name(sample_translation_prompt, sample_dataset
         prompt_uris=[
             f"prompts:/{sample_translation_prompt.name}/{sample_translation_prompt.version}"
         ],
-        optimizer=testing_adapter,
+        optimizer=testing_optimizer,
         scorers=[equivalence],
     )
 
     assert len(result.optimized_prompts) == 1
 
 
-def test_adapt_prompts_with_custom_scorers(sample_translation_prompt, sample_dataset):
+def test_optimize_prompts_with_custom_scorers(sample_translation_prompt, sample_dataset):
     # Create a custom scorer for case-insensitive matching
     @scorer(name="case_insensitive_match")
     def case_insensitive_match(outputs, expectations):
@@ -264,7 +266,7 @@ def test_adapt_prompts_with_custom_scorers(sample_translation_prompt, sample_dat
             expected_value = expectations
         return 1.0 if str(outputs).lower() == str(expected_value).lower() else 0.5
 
-    class MetricTestAdapter(BasePromptOptimizer):
+    class MetricTestOptimizer(BasePromptOptimizer):
         def __init__(self):
             self.model_name = "openai:/gpt-4o-mini"
             self.captured_scores = []
@@ -275,7 +277,7 @@ def test_adapt_prompts_with_custom_scorers(sample_translation_prompt, sample_dat
             self.captured_scores = [r.score for r in results]
             return PromptOptimizerOutput(optimized_prompts=target_prompts)
 
-    testing_adapter = MetricTestAdapter()
+    testing_optimizer = MetricTestOptimizer()
 
     # Create dataset with outputs that will test custom scorer
     test_dataset = pd.DataFrame(
@@ -300,11 +302,11 @@ def test_adapt_prompts_with_custom_scorers(sample_translation_prompt, sample_dat
             f"prompts:/{sample_translation_prompt.name}/{sample_translation_prompt.version}"
         ],
         scorers=[case_insensitive_match],
-        optimizer=testing_adapter,
+        optimizer=testing_optimizer,
     )
 
     # Verify custom scorer was used
     # "hola" vs "HOLA" (case insensitive match) -> 1.0
     # "monde" vs "monde" (exact match) -> 1.0
-    assert testing_adapter.captured_scores == [1.0, 1.0]
+    assert testing_optimizer.captured_scores == [1.0, 1.0]
     assert len(result.optimized_prompts) == 1
