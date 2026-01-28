@@ -14,6 +14,7 @@ from mlflow.entities import (
     GatewayModelLinkageType,
     RoutingStrategy,
 )
+from mlflow.entities.trace_state import TraceState
 from mlflow.exceptions import MlflowException
 from mlflow.gateway.config import (
     EndpointType,
@@ -48,6 +49,7 @@ from mlflow.server.gateway_api import (
 )
 from mlflow.store.tracking.gateway.entities import GatewayEndpointConfig
 from mlflow.store.tracking.sqlalchemy_store import SqlAlchemyStore
+from mlflow.tracing.client import TracingClient
 
 pytestmark = pytest.mark.notrackingurimock
 
@@ -1879,3 +1881,186 @@ def test_create_provider_default_routing_single_model(store: SqlAlchemyStore):
     unwrapped = unwrap_provider(provider)
     assert isinstance(unwrapped, OpenAIProvider)
     assert not isinstance(unwrapped, FallbackProvider)
+
+
+# =============================================================================
+# Gateway Tracing Tests
+# =============================================================================
+
+
+async def _call_invocations(endpoint_name: str, request, payload: dict):
+    # invocations doesn't use "model" field - endpoint is in URL
+    payload_without_model = {k: v for k, v in payload.items() if k != "model"}
+    request.json = AsyncMock(return_value=payload_without_model)
+    return await invocations(endpoint_name, request)
+
+
+async def _call_chat_completions(endpoint_name: str, request, payload: dict):
+    # chat_completions uses "model" field to specify endpoint
+    request.json = AsyncMock(return_value=payload)
+    return await chat_completions(request)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "handler", [_call_invocations, _call_chat_completions], ids=["invocations", "chat_completions"]
+)
+async def test_gateway_creates_trace_with_usage(store: SqlAlchemyStore, handler):
+    endpoint_name = "tracing-test-endpoint"
+
+    # Create endpoint with usage tracking enabled
+    secret = store.create_gateway_secret(
+        secret_name="tracing-test-key",
+        secret_value={"api_key": "sk-test-tracing"},
+        provider="openai",
+    )
+    model_def = store.create_gateway_model_definition(
+        name="tracing-test-model",
+        secret_id=secret.secret_id,
+        provider="openai",
+        model_name="gpt-4",
+    )
+    endpoint = store.create_gateway_endpoint(
+        name=endpoint_name,
+        model_configs=[
+            GatewayEndpointModelConfig(
+                model_definition_id=model_def.model_definition_id,
+                linkage_type=GatewayModelLinkageType.PRIMARY,
+                weight=1.0,
+            ),
+        ],
+        usage_tracking=True,
+    )
+
+    # Get the experiment_id that was auto-created for the endpoint
+    experiment_id = endpoint.experiment_id
+    assert experiment_id is not None
+
+    mock_request = MagicMock()
+    payload = {
+        "model": endpoint_name,
+        "messages": [{"role": "user", "content": "Hi"}],
+        "stream": False,
+    }
+
+    # Mock the OpenAI send_request to return our mock response
+    with mock.patch(
+        "mlflow.gateway.providers.openai.send_request",
+        return_value={
+            "id": "test-id",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hello!"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        },
+    ):
+        response = await handler(endpoint_name, mock_request, payload)
+
+        assert response.id == "test-id"
+        assert response.choices[0].message.content == "Hello!"
+
+    # Verify trace was created
+    traces = TracingClient().search_traces(locations=[experiment_id])
+    assert len(traces) == 1
+    trace = traces[0]
+    assert trace.info.state == TraceState.OK
+
+    # Verify span has provider information (OpenAI uses capitalized provider name)
+    span_names = {span.name for span in trace.data.spans}
+    assert "provider/OpenAI/gpt-4" in span_names
+
+    # Find the provider span and check attributes
+    provider_span = next(
+        (span for span in trace.data.spans if span.name == "provider/OpenAI/gpt-4"), None
+    )
+    assert provider_span is not None
+    assert provider_span.attributes.get("provider") == "OpenAI"
+    assert provider_span.attributes.get("model") == "gpt-4"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "handler", [_call_invocations, _call_chat_completions], ids=["invocations", "chat_completions"]
+)
+async def test_gateway_streaming_creates_trace(store: SqlAlchemyStore, handler):
+    endpoint_name = "stream-tracing-test-endpoint"
+
+    # Create endpoint with usage tracking enabled
+    secret = store.create_gateway_secret(
+        secret_name="stream-tracing-test-key",
+        secret_value={"api_key": "sk-test-stream-tracing"},
+        provider="openai",
+    )
+    model_def = store.create_gateway_model_definition(
+        name="stream-tracing-test-model",
+        secret_id=secret.secret_id,
+        provider="openai",
+        model_name="gpt-4",
+    )
+    endpoint = store.create_gateway_endpoint(
+        name=endpoint_name,
+        model_configs=[
+            GatewayEndpointModelConfig(
+                model_definition_id=model_def.model_definition_id,
+                linkage_type=GatewayModelLinkageType.PRIMARY,
+                weight=1.0,
+            ),
+        ],
+        usage_tracking=True,
+    )
+
+    # Get the experiment_id that was auto-created for the endpoint
+    experiment_id = endpoint.experiment_id
+    assert experiment_id is not None
+
+    mock_request = MagicMock()
+    payload = {
+        "model": endpoint_name,
+        "messages": [{"role": "user", "content": "Hi"}],
+        "stream": True,
+    }
+
+    # Mock streaming response chunks with usage in the final chunk
+    mock_stream_chunks = [
+        b'data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1234567890,"model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}\n\n',  # noqa: E501
+        b'data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1234567890,"model":"gpt-4","choices":[{"index":0,"delta":{"content":"!"},"finish_reason":null}]}\n\n',  # noqa: E501
+        b'data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1234567890,"model":"gpt-4","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\n',  # noqa: E501
+        b"data: [DONE]\n\n",
+    ]
+
+    async def mock_stream_generator():
+        for chunk in mock_stream_chunks:
+            yield chunk
+
+    with mock.patch(
+        "mlflow.gateway.providers.openai.send_stream_request",
+        return_value=mock_stream_generator(),
+    ):
+        response = await handler(endpoint_name, mock_request, payload)
+
+        # Verify streaming response is returned
+        assert isinstance(response, StreamingResponse)
+        # Consume the response
+        chunks = [chunk async for chunk in response.body_iterator]
+        assert len(chunks) > 0
+
+    # Verify trace was created for the gateway invocation
+    traces = TracingClient().search_traces(locations=[experiment_id])
+    assert len(traces) == 1
+    trace = traces[0]
+    assert trace.info.state == TraceState.OK
+
+    # Verify gateway span exists with correct attributes
+    gateway_span = next(
+        (span for span in trace.data.spans if span.name == f"gateway/{endpoint_name}"), None
+    )
+    assert gateway_span is not None
+    assert gateway_span.attributes.get("request_type") == "chat"
+    assert gateway_span.attributes.get("endpoint_name") == endpoint_name

@@ -1,4 +1,3 @@
-import time
 from unittest import mock
 
 import pytest
@@ -12,29 +11,7 @@ from mlflow.types.chat import ChatUsage
 
 
 def get_traces():
-    """Get all traces from the current experiment."""
     return TracingClient().search_traces(locations=[_get_experiment_id()])
-
-
-def purge_traces():
-    """Delete all traces from the current experiment."""
-    traces = get_traces()
-    if len(traces) == 0:
-        return
-
-    TracingClient().delete_traces(
-        experiment_id=_get_experiment_id(),
-        max_traces=1000,
-        max_timestamp_millis=int(time.time() * 1000),
-    )
-
-
-@pytest.fixture(autouse=True)
-def clean_traces():
-    """Clean up traces before and after each test."""
-    purge_traces()
-    yield
-    purge_traces()
 
 
 class MockProvider:
