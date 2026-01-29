@@ -346,6 +346,8 @@ def test_create_provider_from_endpoint_name_litellm(store: SqlAlchemyStore):
     assert isinstance(unwrapped.config.model.config, LiteLLMConfig)
     assert unwrapped.config.model.config.litellm_auth_config["api_key"] == "litellm-test-key"
     assert unwrapped.config.model.config.litellm_provider == "litellm"
+    # get_provider_name() returns the actual provider name for tracing/metrics
+    assert unwrapped.get_provider_name() == "litellm"
 
 
 def test_create_provider_from_endpoint_name_litellm_with_api_base(store: SqlAlchemyStore):
@@ -435,6 +437,8 @@ def test_create_provider_from_endpoint_name_databricks_normalizes_base_url(
         == "https://my-workspace.databricks.com/serving-endpoints"
     )
     assert unwrapped.config.model.config.litellm_provider == "databricks"
+    # get_provider_name() returns "databricks" (the actual provider) instead of "LiteLLM"
+    assert unwrapped.get_provider_name() == "databricks"
 
 
 def test_create_provider_from_endpoint_name_nonexistent_endpoint(store: SqlAlchemyStore):

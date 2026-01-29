@@ -54,49 +54,10 @@ from mlflow.store.tracking.gateway.entities import (
 from mlflow.store.tracking.sqlalchemy_store import SqlAlchemyStore
 from mlflow.telemetry.events import GatewayInvocationEvent, GatewayInvocationType
 from mlflow.telemetry.track import _record_event
-from mlflow.tracing.constant import SpanAttributeKey, TraceMetadataKey
+from mlflow.tracing.constant import TraceMetadataKey
 from mlflow.tracking._tracking_service.utils import _get_store
 
 _logger = logging.getLogger(__name__)
-
-
-def _get_provider_info(provider: BaseProvider) -> dict[str, str]:
-    """
-    Extract provider and model information from a provider instance.
-
-    Args:
-        provider: The provider instance (may be wrapped).
-
-    Returns:
-        Dictionary with 'provider' and optionally 'model' keys.
-    """
-    info = {}
-
-    # Unwrap TracingProviderWrapper if present
-    actual_provider = provider
-    if isinstance(provider, TracingProviderWrapper):
-        actual_provider = provider.wrapped_provider
-
-    # Unwrap TrafficRouteProvider or FallbackProvider to get first provider
-    if isinstance(actual_provider, (TrafficRouteProvider, FallbackProvider)):
-        if hasattr(actual_provider, "_routes") and actual_provider._routes:
-            # TrafficRouteProvider
-            actual_provider = actual_provider._routes[0].provider
-        elif hasattr(actual_provider, "_providers") and actual_provider._providers:
-            # FallbackProvider
-            actual_provider = actual_provider._providers[0]
-
-    # Get provider name
-    provider_name = getattr(actual_provider, "NAME", type(actual_provider).__name__)
-    info["provider"] = provider_name
-
-    # Get model name if available
-    if hasattr(actual_provider, "config") and hasattr(actual_provider.config, "model"):
-        model = actual_provider.config.model
-        if hasattr(model, "name") and model.name:
-            info["model"] = model.name
-
-    return info
 
 
 @contextmanager
@@ -104,7 +65,6 @@ def _create_gateway_trace(
     endpoint_config: GatewayEndpointConfig,
     request_type: str,
     inputs: dict[str, Any],
-    provider: BaseProvider | None = None,
 ):
     """
     Create a trace for a gateway invocation if experiment_id is configured.
@@ -113,7 +73,6 @@ def _create_gateway_trace(
         endpoint_config: The gateway endpoint configuration.
         request_type: Type of request (e.g., "chat", "embeddings", "passthrough").
         inputs: The request inputs to log.
-        provider: Optional provider instance to extract provider/model info from.
 
     Yields:
         The trace context or None if tracing is not configured.
@@ -129,14 +88,6 @@ def _create_gateway_trace(
         TraceMetadataKey.GATEWAY_ENDPOINT_ID: endpoint_config.endpoint_id,
         TraceMetadataKey.GATEWAY_REQUEST_TYPE: request_type,
     }
-
-    # Add provider info if available
-    if provider:
-        provider_info = _get_provider_info(provider)
-        if "provider" in provider_info:
-            tags[SpanAttributeKey.PROVIDER] = provider_info["provider"]
-        if "model" in provider_info:
-            tags[SpanAttributeKey.MODEL] = provider_info["model"]
 
     with mlflow.start_span(
         name=f"gateway/{endpoint_config.endpoint_name}",
@@ -523,7 +474,7 @@ async def invocations(endpoint_name: str, request: Request):
             store, endpoint_name, endpoint_type
         )
 
-        with _create_gateway_trace(endpoint_config, "chat", body, provider) as span:
+        with _create_gateway_trace(endpoint_config, "chat", body) as span:
             if payload.stream:
                 return await make_streaming_response(provider.chat_stream(payload))
             else:
@@ -543,7 +494,7 @@ async def invocations(endpoint_name: str, request: Request):
             store, endpoint_name, endpoint_type
         )
 
-        with _create_gateway_trace(endpoint_config, "embeddings", body, provider) as span:
+        with _create_gateway_trace(endpoint_config, "embeddings", body) as span:
             result = await provider.embeddings(payload)
             _set_trace_outputs(span, result)
             return result
@@ -592,7 +543,7 @@ async def chat_completions(request: Request):
         store, endpoint_name, EndpointType.LLM_V1_CHAT
     )
 
-    with _create_gateway_trace(endpoint_config, "chat", body, provider) as span:
+    with _create_gateway_trace(endpoint_config, "chat", body) as span:
         if payload.stream:
             return await make_streaming_response(provider.chat_stream(payload))
         else:
@@ -635,7 +586,7 @@ async def openai_passthrough_chat(request: Request):
         store, endpoint_name, EndpointType.LLM_V1_CHAT
     )
 
-    with _create_gateway_trace(endpoint_config, "passthrough/openai/chat", body, provider) as span:
+    with _create_gateway_trace(endpoint_config, "passthrough/openai/chat", body) as span:
         if body.get("stream"):
             response = await provider.passthrough(PassthroughAction.OPENAI_CHAT, body, headers)
             return StreamingResponse(response, media_type="text/event-stream")
@@ -674,9 +625,7 @@ async def openai_passthrough_embeddings(request: Request):
         store, endpoint_name, EndpointType.LLM_V1_EMBEDDINGS
     )
 
-    with _create_gateway_trace(
-        endpoint_config, "passthrough/openai/embeddings", body, provider
-    ) as span:
+    with _create_gateway_trace(endpoint_config, "passthrough/openai/embeddings", body) as span:
         result = await provider.passthrough(PassthroughAction.OPENAI_EMBEDDINGS, body, headers)
         _set_trace_outputs(span, result)
         return result
@@ -716,9 +665,7 @@ async def openai_passthrough_responses(request: Request):
         store, endpoint_name, EndpointType.LLM_V1_CHAT
     )
 
-    with _create_gateway_trace(
-        endpoint_config, "passthrough/openai/responses", body, provider
-    ) as span:
+    with _create_gateway_trace(endpoint_config, "passthrough/openai/responses", body) as span:
         if body.get("stream"):
             # For streaming, call directly (tracing handled by wrapper)
             response = await provider.passthrough(PassthroughAction.OPENAI_RESPONSES, body, headers)
@@ -762,9 +709,7 @@ async def anthropic_passthrough_messages(request: Request):
         store, endpoint_name, EndpointType.LLM_V1_CHAT
     )
 
-    with _create_gateway_trace(
-        endpoint_config, "passthrough/anthropic/messages", body, provider
-    ) as span:
+    with _create_gateway_trace(endpoint_config, "passthrough/anthropic/messages", body) as span:
         if body.get("stream"):
             # For streaming, call directly (tracing handled by wrapper)
             response = await provider.passthrough(
@@ -810,9 +755,7 @@ async def gemini_passthrough_generate_content(endpoint_name: str, request: Reque
         store, endpoint_name, EndpointType.LLM_V1_CHAT
     )
 
-    with _create_gateway_trace(
-        endpoint_config, "passthrough/gemini/generateContent", body, provider
-    ) as span:
+    with _create_gateway_trace(endpoint_config, "passthrough/gemini/generateContent", body) as span:
         result = await provider.passthrough(
             PassthroughAction.GEMINI_GENERATE_CONTENT, body, headers
         )
@@ -855,9 +798,7 @@ async def gemini_passthrough_stream_generate_content(endpoint_name: str, request
     )
 
     # For streaming, create trace but we can't capture output (no span wrapper)
-    with _create_gateway_trace(
-        endpoint_config, "passthrough/gemini/streamGenerateContent", body, provider
-    ):
+    with _create_gateway_trace(endpoint_config, "passthrough/gemini/streamGenerateContent", body):
         response = await provider.passthrough(
             PassthroughAction.GEMINI_STREAM_GENERATE_CONTENT, body, headers
         )

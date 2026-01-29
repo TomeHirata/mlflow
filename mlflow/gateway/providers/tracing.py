@@ -36,9 +36,15 @@ class TracingProviderWrapper(BaseProvider):
         """Access the underlying wrapped provider."""
         return self._provider
 
+    def _get_provider_name(self) -> str:
+        """Get the provider name, using get_provider_name() if available."""
+        if hasattr(self._provider, "get_provider_name"):
+            return self._provider.get_provider_name()
+        return getattr(self._provider, "NAME", type(self._provider).__name__)
+
     def _get_span_name(self) -> str:
         """Generate span name based on wrapped provider."""
-        provider_name = getattr(self._provider, "NAME", type(self._provider).__name__)
+        provider_name = self._get_provider_name()
         model_name = ""
         if hasattr(self._provider, "config") and hasattr(self._provider.config, "model"):
             model_name = getattr(self._provider.config.model, "name", "")
@@ -51,9 +57,7 @@ class TracingProviderWrapper(BaseProvider):
     def _get_provider_attributes(self) -> dict[str, str]:
         """Get provider attributes for span."""
         attrs = {
-            SpanAttributeKey.PROVIDER: getattr(
-                self._provider, "NAME", type(self._provider).__name__
-            ),
+            SpanAttributeKey.PROVIDER: self._get_provider_name(),
         }
         if hasattr(self._provider, "config") and hasattr(self._provider.config, "model"):
             if model_name := getattr(self._provider.config.model, "name", ""):
