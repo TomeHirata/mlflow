@@ -58,6 +58,8 @@ from mlflow.tracking._tracking_service.utils import _get_store
 
 _logger = logging.getLogger(__name__)
 
+gateway_router = APIRouter(prefix="/gateway", tags=["gateway"])
+
 
 def _configure_gateway_span(
     span: LiveSpan,
@@ -224,9 +226,6 @@ async def _make_traced_streaming_response(
                     _logger.debug(f"Failed to end span: {e}")
 
     return StreamingResponse(traced_stream(), media_type="text/event-stream")
-
-
-gateway_router = APIRouter(prefix="/gateway", tags=["gateway"])
 
 
 async def _get_request_body(request: Request) -> dict:
