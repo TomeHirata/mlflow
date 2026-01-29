@@ -37,9 +37,9 @@ from mlflow.gateway.providers.base import (
     BaseProvider,
     FallbackProvider,
     PassthroughAction,
-    TracingProviderWrapper,
     TrafficRouteProvider,
 )
+from mlflow.gateway.providers.tracing import TracingProviderWrapper
 from mlflow.gateway.schemas import chat, embeddings
 from mlflow.gateway.utils import make_streaming_response, translate_http_exception
 from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST

@@ -27,13 +27,13 @@ from mlflow.gateway.config import (
 from mlflow.gateway.providers.anthropic import AnthropicProvider
 from mlflow.gateway.providers.base import (
     FallbackProvider,
-    TracingProviderWrapper,
     TrafficRouteProvider,
 )
 from mlflow.gateway.providers.gemini import GeminiProvider
 from mlflow.gateway.providers.litellm import LiteLLMProvider
 from mlflow.gateway.providers.mistral import MistralProvider
 from mlflow.gateway.providers.openai import OpenAIProvider
+from mlflow.gateway.providers.tracing import TracingProviderWrapper
 from mlflow.gateway.schemas import chat, embeddings
 from mlflow.server.gateway_api import (
     _create_provider_from_endpoint_name,

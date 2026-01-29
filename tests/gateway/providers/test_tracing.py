@@ -4,7 +4,7 @@ import pytest
 
 import mlflow
 from mlflow.entities.trace_state import TraceState
-from mlflow.gateway.providers.base import TracingProviderWrapper
+from mlflow.gateway.providers.tracing import TracingProviderWrapper
 from mlflow.tracing.client import TracingClient
 from mlflow.tracking.fluent import _get_experiment_id
 from mlflow.types.chat import ChatUsage
