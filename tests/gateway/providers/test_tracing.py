@@ -6,6 +6,7 @@ import mlflow
 from mlflow.entities.trace_state import TraceState
 from mlflow.gateway.providers.tracing import TracingProviderWrapper
 from mlflow.tracing.client import TracingClient
+from mlflow.tracing.constant import SpanAttributeKey, TokenUsageKey
 from mlflow.tracking.fluent import _get_experiment_id
 from mlflow.types.chat import ChatUsage
 
@@ -81,15 +82,17 @@ async def test_trace_stream_method_captures_usage_from_final_chunk(tracing_wrapp
     assert "provider/MockProvider/mock-model" in span_name_to_span
 
     provider_span = span_name_to_span["provider/MockProvider/mock-model"]
-    assert provider_span.attributes.get("provider") == "MockProvider"
-    assert provider_span.attributes.get("model") == "mock-model"
+    assert provider_span.attributes.get(SpanAttributeKey.PROVIDER) == "MockProvider"
+    assert provider_span.attributes.get(SpanAttributeKey.MODEL) == "mock-model"
     assert provider_span.attributes.get("method") == "test_stream"
     assert provider_span.attributes.get("streaming") is True
 
-    # Verify usage was captured
-    assert provider_span.attributes.get("prompt_tokens") == 10
-    assert provider_span.attributes.get("completion_tokens") == 5
-    assert provider_span.attributes.get("total_tokens") == 15
+    # Verify usage was captured in mlflow.chat.tokenUsage format
+    token_usage = provider_span.attributes.get(SpanAttributeKey.CHAT_USAGE)
+    assert token_usage is not None
+    assert token_usage[TokenUsageKey.INPUT_TOKENS] == 10
+    assert token_usage[TokenUsageKey.OUTPUT_TOKENS] == 5
+    assert token_usage[TokenUsageKey.TOTAL_TOKENS] == 15
 
 
 @pytest.mark.asyncio
@@ -116,9 +119,7 @@ async def test_trace_stream_method_without_usage(tracing_wrapper):
     provider_span = span_name_to_span["provider/MockProvider/mock-model"]
 
     # Verify no usage attributes were set
-    assert provider_span.attributes.get("prompt_tokens") is None
-    assert provider_span.attributes.get("completion_tokens") is None
-    assert provider_span.attributes.get("total_tokens") is None
+    assert provider_span.attributes.get(SpanAttributeKey.CHAT_USAGE) is None
 
 
 @pytest.mark.asyncio
@@ -188,10 +189,12 @@ async def test_trace_stream_method_partial_usage(tracing_wrapper):
     span_name_to_span = {span.name: span for span in trace.data.spans}
     provider_span = span_name_to_span["provider/MockProvider/mock-model"]
 
-    # Verify only prompt_tokens was set
-    assert provider_span.attributes.get("prompt_tokens") == 10
-    assert provider_span.attributes.get("completion_tokens") is None
-    assert provider_span.attributes.get("total_tokens") is None
+    # Verify only input_tokens was set (partial usage)
+    token_usage = provider_span.attributes.get(SpanAttributeKey.CHAT_USAGE)
+    assert token_usage is not None
+    assert token_usage[TokenUsageKey.INPUT_TOKENS] == 10
+    assert TokenUsageKey.OUTPUT_TOKENS not in token_usage
+    assert TokenUsageKey.TOTAL_TOKENS not in token_usage
 
 
 @pytest.mark.asyncio
@@ -214,8 +217,8 @@ async def test_trace_method_non_streaming(tracing_wrapper):
     span_name_to_span = {span.name: span for span in trace.data.spans}
     provider_span = span_name_to_span["provider/MockProvider/mock-model"]
 
-    assert provider_span.attributes.get("provider") == "MockProvider"
-    assert provider_span.attributes.get("model") == "mock-model"
+    assert provider_span.attributes.get(SpanAttributeKey.PROVIDER) == "MockProvider"
+    assert provider_span.attributes.get(SpanAttributeKey.MODEL) == "mock-model"
     assert provider_span.attributes.get("method") == "test_method"
     # Non-streaming should not have streaming attribute
     assert provider_span.attributes.get("streaming") is None

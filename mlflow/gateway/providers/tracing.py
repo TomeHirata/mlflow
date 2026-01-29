@@ -2,6 +2,7 @@ from typing import Any, AsyncIterable
 
 from mlflow.gateway.providers.base import BaseProvider, PassthroughAction
 from mlflow.gateway.schemas import chat, completions, embeddings
+from mlflow.tracing.constant import SpanAttributeKey, TokenUsageKey
 
 
 class TracingProviderWrapper(BaseProvider):
@@ -50,12 +51,30 @@ class TracingProviderWrapper(BaseProvider):
     def _get_provider_attributes(self) -> dict[str, str]:
         """Get provider attributes for span."""
         attrs = {
-            "provider": getattr(self._provider, "NAME", type(self._provider).__name__),
+            SpanAttributeKey.PROVIDER: getattr(
+                self._provider, "NAME", type(self._provider).__name__
+            ),
         }
         if hasattr(self._provider, "config") and hasattr(self._provider.config, "model"):
             if model_name := getattr(self._provider.config.model, "name", ""):
-                attrs["model"] = model_name
+                attrs[SpanAttributeKey.MODEL] = model_name
         return attrs
+
+    def _extract_token_usage(self, result) -> dict[str, int] | None:
+        """Extract token usage from a response object if available."""
+        if not hasattr(result, "usage") or result.usage is None:
+            return None
+
+        usage = result.usage
+        token_usage = {}
+        if hasattr(usage, "prompt_tokens") and usage.prompt_tokens is not None:
+            token_usage[TokenUsageKey.INPUT_TOKENS] = usage.prompt_tokens
+        if hasattr(usage, "completion_tokens") and usage.completion_tokens is not None:
+            token_usage[TokenUsageKey.OUTPUT_TOKENS] = usage.completion_tokens
+        if hasattr(usage, "total_tokens") and usage.total_tokens is not None:
+            token_usage[TokenUsageKey.TOTAL_TOKENS] = usage.total_tokens
+
+        return token_usage or None
 
     async def _trace_method(self, method_name: str, method, *args, **kwargs):
         """Execute a method with tracing span."""
@@ -73,6 +92,11 @@ class TracingProviderWrapper(BaseProvider):
 
             try:
                 result = await method(*args, **kwargs)
+
+                # Extract and log token usage if available
+                if token_usage := self._extract_token_usage(result):
+                    span.set_attribute(SpanAttributeKey.CHAT_USAGE, token_usage)
+
                 span.set_status("OK")
                 return result
             except Exception as e:
@@ -111,14 +135,9 @@ class TracingProviderWrapper(BaseProvider):
 
             # Extract usage from the final chunk if available (OpenAI includes this
             # when stream_options.include_usage=true)
-            if last_chunk is not None and hasattr(last_chunk, "usage") and last_chunk.usage:
-                usage = last_chunk.usage
-                if hasattr(usage, "prompt_tokens") and usage.prompt_tokens is not None:
-                    span.set_attribute("prompt_tokens", usage.prompt_tokens)
-                if hasattr(usage, "completion_tokens") and usage.completion_tokens is not None:
-                    span.set_attribute("completion_tokens", usage.completion_tokens)
-                if hasattr(usage, "total_tokens") and usage.total_tokens is not None:
-                    span.set_attribute("total_tokens", usage.total_tokens)
+            if last_chunk is not None:
+                if token_usage := self._extract_token_usage(last_chunk):
+                    span.set_attribute(SpanAttributeKey.CHAT_USAGE, token_usage)
 
             span.set_status("OK")
             span.end()

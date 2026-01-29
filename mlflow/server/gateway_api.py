@@ -16,7 +16,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from mlflow.entities.gateway_endpoint import GatewayEndpoint, GatewayModelLinkageType
+from mlflow.entities.gateway_endpoint import GatewayModelLinkageType
+from mlflow.entities.span import LiveSpan
 from mlflow.entities.trace_location import MlflowExperimentLocation
 from mlflow.exceptions import MlflowException
 from mlflow.gateway.config import (
@@ -53,6 +54,7 @@ from mlflow.store.tracking.gateway.entities import (
 from mlflow.store.tracking.sqlalchemy_store import SqlAlchemyStore
 from mlflow.telemetry.events import GatewayInvocationEvent, GatewayInvocationType
 from mlflow.telemetry.track import _record_event
+from mlflow.tracing.constant import SpanAttributeKey, TraceMetadataKey
 from mlflow.tracking._tracking_service.utils import _get_store
 
 _logger = logging.getLogger(__name__)
@@ -99,7 +101,7 @@ def _get_provider_info(provider: BaseProvider) -> dict[str, str]:
 
 @contextmanager
 def _create_gateway_trace(
-    endpoint: GatewayEndpoint,
+    endpoint_config: GatewayEndpointConfig,
     request_type: str,
     inputs: dict[str, Any],
     provider: BaseProvider | None = None,
@@ -108,7 +110,7 @@ def _create_gateway_trace(
     Create a trace for a gateway invocation if experiment_id is configured.
 
     Args:
-        endpoint: The gateway endpoint being invoked.
+        endpoint_config: The gateway endpoint configuration.
         request_type: Type of request (e.g., "chat", "embeddings", "passthrough").
         inputs: The request inputs to log.
         provider: Optional provider instance to extract provider/model info from.
@@ -118,32 +120,32 @@ def _create_gateway_trace(
     """
     import mlflow
 
-    if not endpoint.experiment_id:
+    if not endpoint_config.experiment_id:
         yield None
         return
 
     # Build trace tags for filtering
     tags = {
-        "mlflow.gateway.endpoint": endpoint.name,
-        "mlflow.gateway.requestType": request_type,
+        TraceMetadataKey.GATEWAY_ENDPOINT_ID: endpoint_config.endpoint_id,
+        TraceMetadataKey.GATEWAY_REQUEST_TYPE: request_type,
     }
 
     # Add provider info if available
     if provider:
         provider_info = _get_provider_info(provider)
         if "provider" in provider_info:
-            tags["mlflow.gateway.provider"] = provider_info["provider"]
+            tags[SpanAttributeKey.PROVIDER] = provider_info["provider"]
         if "model" in provider_info:
-            tags["mlflow.gateway.model"] = provider_info["model"]
+            tags[SpanAttributeKey.MODEL] = provider_info["model"]
 
     with mlflow.start_span(
-        name=f"gateway/{endpoint.name}",
-        trace_destination=MlflowExperimentLocation(experiment_id=endpoint.experiment_id),
+        name=f"gateway/{endpoint_config.endpoint_name}",
+        trace_destination=MlflowExperimentLocation(experiment_id=endpoint_config.experiment_id),
     ) as span:
         span.set_inputs(inputs)
         span.set_attribute("request_type", request_type)
-        span.set_attribute("endpoint_id", endpoint.endpoint_id)
-        span.set_attribute("endpoint_name", endpoint.name)
+        span.set_attribute("endpoint_id", endpoint_config.endpoint_id)
+        span.set_attribute("endpoint_name", endpoint_config.endpoint_name)
 
         # Set trace-level tags for filtering in metrics API
         mlflow.update_current_trace(tags=tags)
@@ -151,86 +153,14 @@ def _create_gateway_trace(
         yield span
 
 
-def _set_trace_outputs(trace, outputs: Any):
-    """Helper to set outputs on a trace if it exists."""
-    if trace is not None:
-        try:
-            if hasattr(outputs, "model_dump"):
-                output_dict = outputs.model_dump()
-                trace.set_outputs(output_dict)
-                # Extract and set token usage from chat responses
-                _set_trace_token_usage(trace, output_dict)
-            elif isinstance(outputs, dict):
-                trace.set_outputs(outputs)
-                # Extract and set token usage from chat responses
-                _set_trace_token_usage(trace, outputs)
-            else:
-                trace.set_outputs({"response": str(outputs)})
-        except Exception as e:
-            _logger.debug(f"Failed to set trace outputs: {e}")
-
-
-def _set_trace_token_usage(trace, output_dict: dict[str, Any]):
-    """
-    Extract token usage from gateway response and set it on the span.
-
-    This enables token usage metrics to be tracked for gateway invocations.
-    The token usage is stored in the span attribute 'mlflow.chat.tokenUsage'.
-    """
+def _set_trace_outputs(span: LiveSpan, outputs: Any):
+    """Helper to set outputs on a span if it exists."""
+    if span is None:
+        return
     try:
-        from mlflow.tracing.constant import SpanAttributeKey, TokenUsageKey
-
-        usage = output_dict.get("usage")
-        if usage is None:
-            return
-
-        # Map gateway response usage fields to standard token usage keys
-        # Gateway chat response uses: prompt_tokens, completion_tokens, total_tokens
-        # Gateway embeddings response uses: prompt_tokens, total_tokens (no completion_tokens)
-        token_usage = {}
-
-        # Input tokens (prompt_tokens in OpenAI format)
-        if "prompt_tokens" in usage:
-            token_usage[TokenUsageKey.INPUT_TOKENS] = usage["prompt_tokens"]
-        elif "input_tokens" in usage:
-            token_usage[TokenUsageKey.INPUT_TOKENS] = usage["input_tokens"]
-
-        # Output tokens (completion_tokens in OpenAI format)
-        if "completion_tokens" in usage:
-            token_usage[TokenUsageKey.OUTPUT_TOKENS] = usage["completion_tokens"]
-        elif "output_tokens" in usage:
-            token_usage[TokenUsageKey.OUTPUT_TOKENS] = usage["output_tokens"]
-
-        # Total tokens
-        if "total_tokens" in usage:
-            token_usage[TokenUsageKey.TOTAL_TOKENS] = usage["total_tokens"]
-
-        if token_usage:
-            trace.set_attribute(SpanAttributeKey.CHAT_USAGE, token_usage)
+        span.set_outputs(outputs)
     except Exception as e:
-        _logger.debug(f"Failed to set token usage on trace: {e}")
-
-
-def _get_endpoint_by_name(store: SqlAlchemyStore, endpoint_name: str) -> GatewayEndpoint:
-    """
-    Get a gateway endpoint by name.
-
-    Args:
-        store: The SQLAlchemy store instance.
-        endpoint_name: The endpoint name.
-
-    Returns:
-        The GatewayEndpoint entity.
-
-    Raises:
-        HTTPException: If endpoint is not found.
-    """
-    try:
-        return store.get_gateway_endpoint(name=endpoint_name)
-    except MlflowException as e:
-        if e.error_code == RESOURCE_DOES_NOT_EXIST:
-            raise HTTPException(status_code=404, detail=f"Endpoint '{endpoint_name}' not found")
-        raise
+        _logger.debug(f"Failed to set trace outputs: {e}")
 
 
 gateway_router = APIRouter(prefix="/gateway", tags=["gateway"])
@@ -461,6 +391,9 @@ def _create_provider(
         provider_class = get_provider(model_config.provider)
         primary_provider = provider_class(gateway_endpoint_config)
 
+    # Wrap primary provider with TracingProviderWrapper for automatic instrumentation
+    primary_provider = TracingProviderWrapper(primary_provider)
+
     # Wrap with FallbackProvider if fallback configuration exists
     if endpoint_config.fallback_config:
         fallback_models = [
@@ -474,20 +407,22 @@ def _create_provider(
                 f"Endpoint '{endpoint_config.endpoint_name}' has fallback_config "
                 "but no FALLBACK models configured"
             )
-            # Wrap with TracingProviderWrapper for automatic instrumentation
-            return TracingProviderWrapper(primary_provider)
+            return primary_provider
 
         # Sort fallback models by fallback_order
         fallback_models.sort(
             key=lambda m: m.fallback_order if m.fallback_order is not None else float("inf")
         )
 
+        # Wrap each fallback provider with TracingProviderWrapper
         fallback_providers = [
-            get_provider(model_config.provider)(
-                _build_endpoint_config(
-                    endpoint_name=endpoint_config.endpoint_name,
-                    model_config=model_config,
-                    endpoint_type=endpoint_type,
+            TracingProviderWrapper(
+                get_provider(model_config.provider)(
+                    _build_endpoint_config(
+                        endpoint_name=endpoint_config.endpoint_name,
+                        model_config=model_config,
+                        endpoint_type=endpoint_type,
+                    )
                 )
             )
             for model_config in fallback_models
@@ -496,29 +431,24 @@ def _create_provider(
         max_attempts = endpoint_config.fallback_config.max_attempts or len(fallback_models)
 
         # FallbackProvider expects all providers (primary + fallback)
-        # We need to create a combined provider that tries primary first, then fallbacks
         all_providers = [primary_provider] + fallback_providers
 
-        # Wrap with TracingProviderWrapper for automatic instrumentation
-        return TracingProviderWrapper(
-            FallbackProvider(
-                providers=all_providers,
-                max_attempts=max_attempts + 1,  # +1 to include primary
-                strategy=endpoint_config.fallback_config.strategy,
-            )
+        return FallbackProvider(
+            providers=all_providers,
+            max_attempts=max_attempts + 1,  # +1 to include primary
+            strategy=endpoint_config.fallback_config.strategy,
         )
 
-    # Wrap with TracingProviderWrapper for automatic instrumentation
-    return TracingProviderWrapper(primary_provider)
+    return primary_provider
 
 
 def _create_provider_from_endpoint_name(
     store: SqlAlchemyStore,
     endpoint_name: str,
     endpoint_type: EndpointType,
-) -> BaseProvider:
+) -> tuple[BaseProvider, GatewayEndpointConfig]:
     """
-    Create a provider from an endpoint name (backward compatibility helper for tests).
+    Create a provider from an endpoint name.
 
     Args:
         store: The SQLAlchemy store instance.
@@ -526,10 +456,10 @@ def _create_provider_from_endpoint_name(
         endpoint_type: Endpoint type (chat or embeddings).
 
     Returns:
-        Provider instance
+        Tuple of (provider instance, endpoint config)
     """
     endpoint_config = get_endpoint_config(endpoint_name=endpoint_name, store=store)
-    return _create_provider(endpoint_config, endpoint_type)
+    return _create_provider(endpoint_config, endpoint_type), endpoint_config
 
 
 def _validate_store(store: AbstractStore) -> None:
@@ -580,9 +510,6 @@ async def invocations(endpoint_name: str, request: Request):
 
     _validate_store(store)
 
-    # Get endpoint for tracing
-    endpoint = _get_endpoint_by_name(store, endpoint_name)
-
     # Detect request type based on payload structure
     if "messages" in body:
         # Chat request
@@ -592,9 +519,11 @@ async def invocations(endpoint_name: str, request: Request):
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid chat payload: {e!s}")
 
-        provider = _create_provider_from_endpoint_name(store, endpoint_name, endpoint_type)
+        provider, endpoint_config = _create_provider_from_endpoint_name(
+            store, endpoint_name, endpoint_type
+        )
 
-        with _create_gateway_trace(endpoint, "chat", body, provider) as span:
+        with _create_gateway_trace(endpoint_config, "chat", body, provider) as span:
             if payload.stream:
                 return await make_streaming_response(provider.chat_stream(payload))
             else:
@@ -610,11 +539,13 @@ async def invocations(endpoint_name: str, request: Request):
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid embeddings payload: {e!s}")
 
-        provider = _create_provider_from_endpoint_name(store, endpoint_name, endpoint_type)
+        provider, endpoint_config = _create_provider_from_endpoint_name(
+            store, endpoint_name, endpoint_type
+        )
 
-        with _create_gateway_trace(endpoint, "embeddings", body, provider) as trace:
+        with _create_gateway_trace(endpoint_config, "embeddings", body, provider) as span:
             result = await provider.embeddings(payload)
-            _set_trace_outputs(trace, result)
+            _set_trace_outputs(span, result)
             return result
 
     else:
@@ -652,22 +583,21 @@ async def chat_completions(request: Request):
 
     _validate_store(store)
 
-    # Get endpoint for tracing
-    endpoint = _get_endpoint_by_name(store, endpoint_name)
-
     try:
         payload = chat.RequestPayload(**body)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid chat payload: {e!s}")
 
-    provider = _create_provider_from_endpoint_name(store, endpoint_name, EndpointType.LLM_V1_CHAT)
+    provider, endpoint_config = _create_provider_from_endpoint_name(
+        store, endpoint_name, EndpointType.LLM_V1_CHAT
+    )
 
-    with _create_gateway_trace(endpoint, "chat", body, provider) as trace:
+    with _create_gateway_trace(endpoint_config, "chat", body, provider) as span:
         if payload.stream:
             return await make_streaming_response(provider.chat_stream(payload))
         else:
             result = await provider.chat(payload)
-            _set_trace_outputs(trace, result)
+            _set_trace_outputs(span, result)
             return result
 
 
@@ -700,18 +630,17 @@ async def openai_passthrough_chat(request: Request):
     store = _get_store()
     _validate_store(store)
 
-    # Get endpoint for tracing
-    endpoint = _get_endpoint_by_name(store, endpoint_name)
-
     headers = dict(request.headers)
-    provider = _create_provider_from_endpoint_name(store, endpoint_name, EndpointType.LLM_V1_CHAT)
+    provider, endpoint_config = _create_provider_from_endpoint_name(
+        store, endpoint_name, EndpointType.LLM_V1_CHAT
+    )
 
-    with _create_gateway_trace(endpoint, "passthrough/openai/chat", body, provider) as trace:
+    with _create_gateway_trace(endpoint_config, "passthrough/openai/chat", body, provider) as span:
         if body.get("stream"):
             response = await provider.passthrough(PassthroughAction.OPENAI_CHAT, body, headers)
             return StreamingResponse(response, media_type="text/event-stream")
         response = await provider.passthrough(PassthroughAction.OPENAI_CHAT, body, headers)
-        _set_trace_outputs(trace, response)
+        _set_trace_outputs(span, response)
         return response
 
 
@@ -740,17 +669,16 @@ async def openai_passthrough_embeddings(request: Request):
     store = _get_store()
     _validate_store(store)
 
-    # Get endpoint for tracing
-    endpoint = _get_endpoint_by_name(store, endpoint_name)
-
     headers = dict(request.headers)
-    provider = _create_provider_from_endpoint_name(
+    provider, endpoint_config = _create_provider_from_endpoint_name(
         store, endpoint_name, EndpointType.LLM_V1_EMBEDDINGS
     )
 
-    with _create_gateway_trace(endpoint, "passthrough/openai/embeddings", body, provider) as trace:
+    with _create_gateway_trace(
+        endpoint_config, "passthrough/openai/embeddings", body, provider
+    ) as span:
         result = await provider.passthrough(PassthroughAction.OPENAI_EMBEDDINGS, body, headers)
-        _set_trace_outputs(trace, result)
+        _set_trace_outputs(span, result)
         return result
 
 
@@ -783,19 +711,20 @@ async def openai_passthrough_responses(request: Request):
     store = _get_store()
     _validate_store(store)
 
-    # Get endpoint for tracing
-    endpoint = _get_endpoint_by_name(store, endpoint_name)
-
     headers = dict(request.headers)
-    provider = _create_provider_from_endpoint_name(store, endpoint_name, EndpointType.LLM_V1_CHAT)
+    provider, endpoint_config = _create_provider_from_endpoint_name(
+        store, endpoint_name, EndpointType.LLM_V1_CHAT
+    )
 
-    with _create_gateway_trace(endpoint, "passthrough/openai/responses", body, provider) as trace:
+    with _create_gateway_trace(
+        endpoint_config, "passthrough/openai/responses", body, provider
+    ) as span:
         if body.get("stream"):
             # For streaming, call directly (tracing handled by wrapper)
             response = await provider.passthrough(PassthroughAction.OPENAI_RESPONSES, body, headers)
             return StreamingResponse(response, media_type="text/event-stream")
         response = await provider.passthrough(PassthroughAction.OPENAI_RESPONSES, body, headers)
-        _set_trace_outputs(trace, response)
+        _set_trace_outputs(span, response)
         return response
 
 
@@ -828,13 +757,14 @@ async def anthropic_passthrough_messages(request: Request):
     store = _get_store()
     _validate_store(store)
 
-    # Get endpoint for tracing
-    endpoint = _get_endpoint_by_name(store, endpoint_name)
-
     headers = dict(request.headers)
-    provider = _create_provider_from_endpoint_name(store, endpoint_name, EndpointType.LLM_V1_CHAT)
+    provider, endpoint_config = _create_provider_from_endpoint_name(
+        store, endpoint_name, EndpointType.LLM_V1_CHAT
+    )
 
-    with _create_gateway_trace(endpoint, "passthrough/anthropic/messages", body, provider) as trace:
+    with _create_gateway_trace(
+        endpoint_config, "passthrough/anthropic/messages", body, provider
+    ) as span:
         if body.get("stream"):
             # For streaming, call directly (tracing handled by wrapper)
             response = await provider.passthrough(
@@ -842,7 +772,7 @@ async def anthropic_passthrough_messages(request: Request):
             )
             return StreamingResponse(response, media_type="text/event-stream")
         response = await provider.passthrough(PassthroughAction.ANTHROPIC_MESSAGES, body, headers)
-        _set_trace_outputs(trace, response)
+        _set_trace_outputs(span, response)
         return response
 
 
@@ -875,19 +805,18 @@ async def gemini_passthrough_generate_content(endpoint_name: str, request: Reque
     store = _get_store()
     _validate_store(store)
 
-    # Get endpoint for tracing
-    endpoint = _get_endpoint_by_name(store, endpoint_name)
-
     headers = dict(request.headers)
-    provider = _create_provider_from_endpoint_name(store, endpoint_name, EndpointType.LLM_V1_CHAT)
+    provider, endpoint_config = _create_provider_from_endpoint_name(
+        store, endpoint_name, EndpointType.LLM_V1_CHAT
+    )
 
     with _create_gateway_trace(
-        endpoint, "passthrough/gemini/generateContent", body, provider
-    ) as trace:
+        endpoint_config, "passthrough/gemini/generateContent", body, provider
+    ) as span:
         result = await provider.passthrough(
             PassthroughAction.GEMINI_GENERATE_CONTENT, body, headers
         )
-        _set_trace_outputs(trace, result)
+        _set_trace_outputs(span, result)
         return result
 
 
@@ -920,16 +849,15 @@ async def gemini_passthrough_stream_generate_content(endpoint_name: str, request
     store = _get_store()
     _validate_store(store)
 
-    # Get endpoint for tracing
-    endpoint = _get_endpoint_by_name(store, endpoint_name)
-
     headers = dict(request.headers)
-    provider = _create_provider_from_endpoint_name(store, endpoint_name, EndpointType.LLM_V1_CHAT)
+    provider, endpoint_config = _create_provider_from_endpoint_name(
+        store, endpoint_name, EndpointType.LLM_V1_CHAT
+    )
 
     # For streaming, create trace but we can't capture output (no span wrapper)
     with _create_gateway_trace(
-        endpoint, "passthrough/gemini/streamGenerateContent", body, provider
-    ) as _trace:
+        endpoint_config, "passthrough/gemini/streamGenerateContent", body, provider
+    ):
         response = await provider.passthrough(
             PassthroughAction.GEMINI_STREAM_GENERATE_CONTENT, body, headers
         )
