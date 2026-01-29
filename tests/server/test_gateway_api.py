@@ -787,17 +787,17 @@ async def test_invocations_handler_streaming(store: SqlAlchemyStore):
         }
     )
 
-    # Mock streaming response
-    mock_streaming_response = MagicMock()
+    # Mock streaming response - _make_traced_streaming_response returns a StreamingResponse
+    mock_streaming_response = StreamingResponse(iter([]), media_type="text/event-stream")
 
     with (
         patch(
             "mlflow.server.gateway_api._create_provider_from_endpoint_name"
         ) as mock_create_provider,
         patch(
-            "mlflow.server.gateway_api.make_streaming_response",
+            "mlflow.server.gateway_api._make_traced_streaming_response",
             return_value=mock_streaming_response,
-        ) as mock_make_streaming,
+        ) as mock_traced_streaming,
     ):
         mock_provider = MagicMock()
         mock_provider.chat_stream = MagicMock(return_value="mock_stream")
@@ -810,7 +810,7 @@ async def test_invocations_handler_streaming(store: SqlAlchemyStore):
 
         # Verify streaming was called
         assert mock_provider.chat_stream.called
-        assert mock_make_streaming.called
+        assert mock_traced_streaming.called
         assert response == mock_streaming_response
 
 
@@ -959,17 +959,17 @@ async def test_chat_completions_endpoint_streaming(store: SqlAlchemyStore):
         }
     )
 
-    # Mock streaming response
-    mock_streaming_response = MagicMock()
+    # Mock streaming response - _make_traced_streaming_response returns a StreamingResponse
+    mock_streaming_response = StreamingResponse(iter([]), media_type="text/event-stream")
 
     with (
         patch(
             "mlflow.server.gateway_api._create_provider_from_endpoint_name"
         ) as mock_create_provider,
         patch(
-            "mlflow.server.gateway_api.make_streaming_response",
+            "mlflow.server.gateway_api._make_traced_streaming_response",
             return_value=mock_streaming_response,
-        ) as mock_make_streaming,
+        ) as mock_traced_streaming,
     ):
         mock_provider = MagicMock()
         mock_provider.chat_stream = MagicMock(return_value="mock_stream")
@@ -982,7 +982,7 @@ async def test_chat_completions_endpoint_streaming(store: SqlAlchemyStore):
 
         # Verify streaming was called
         assert mock_provider.chat_stream.called
-        assert mock_make_streaming.called
+        assert mock_traced_streaming.called
         assert response == mock_streaming_response
 
 
