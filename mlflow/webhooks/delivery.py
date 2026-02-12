@@ -24,6 +24,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from mlflow.entities.webhook import Webhook, WebhookEvent, WebhookTestResult
+from mlflow.utils.validation import _validate_webhook_url
 from mlflow.environment_variables import (
     MLFLOW_WEBHOOK_CACHE_TTL,
     MLFLOW_WEBHOOK_DELIVERY_MAX_WORKERS,
@@ -148,6 +149,12 @@ def _send_webhook_request(
     Returns:
         requests.Response object from the webhook request
     """
+    # Validate URL to block non-public IPs (SSRF protection).
+    # Note: DNS is resolved again by requests, so a DNS rebinding attack could
+    # theoretically bypass this check. Pinning to the resolved IP would require
+    # a custom transport adapter and is left as a future improvement.
+    _validate_webhook_url(webhook.url)
+
     # Create webhook payload with metadata
     webhook_payload = {
         "entity": event.entity.value,
