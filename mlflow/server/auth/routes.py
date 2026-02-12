@@ -74,6 +74,12 @@ DELETE_GATEWAY_MODEL_DEFINITION_PERMISSION = _get_rest_path(
     "/mlflow/gateway/model-definitions/permissions/delete", version=3
 )
 
+# Webhook permission routes
+CREATE_WEBHOOK_PERMISSION = _get_rest_path("/mlflow/webhooks/permissions/create")
+GET_WEBHOOK_PERMISSION = _get_rest_path("/mlflow/webhooks/permissions/get")
+UPDATE_WEBHOOK_PERMISSION = _get_rest_path("/mlflow/webhooks/permissions/update")
+DELETE_WEBHOOK_PERMISSION = _get_rest_path("/mlflow/webhooks/permissions/delete")
+
 # Gateway AJAX-only routes
 GATEWAY_SUPPORTED_PROVIDERS = _get_ajax_path("/mlflow/gateway/supported-providers", version=3)
 GATEWAY_SUPPORTED_MODELS = _get_ajax_path("/mlflow/gateway/supported-models", version=3)

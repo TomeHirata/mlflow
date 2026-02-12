@@ -6,8 +6,8 @@ MLflow Authentication REST API
 ==============================
 
 
-The MLflow Authentication REST API allows you to create, get, update and delete users, 
-experiment permissions and registered model permissions.
+The MLflow Authentication REST API allows you to create, get, update and delete users,
+experiment permissions, registered model permissions, and webhook permissions.
 The API is hosted under the ``/api`` route on the MLflow tracking server. For example, to list
 experiments on a tracking server hosted at ``http://localhost:5000``, access
 ``http://localhost:5000/api/2.0/mlflow/users/create``.
@@ -428,6 +428,137 @@ Request Structure
 +------------+------------+------------------------+
 
 
+===========================
+
+.. _mlflowAuthServiceCreateWebhookPermission:
+
+Create Webhook Permission
+=========================
+
++----------------------------------------------+-------------+
+|                   Endpoint                   | HTTP Method |
++==============================================+=============+
+| ``2.0/mlflow/webhooks/permissions/create``   | ``POST``    |
++----------------------------------------------+-------------+
+
+.. _mlflowCreateWebhookPermission:
+
+Request Structure
+-----------------
+
++------------+-------------------------+----------------------+
+| Field Name |          Type           |     Description      |
++============+=========================+======================+
+| webhook_id | ``STRING``              | Webhook id.          |
++------------+-------------------------+----------------------+
+| username   | ``STRING``              | Username.            |
++------------+-------------------------+----------------------+
+| permission | :ref:`mlflowPermission` | Permission to grant. |
++------------+-------------------------+----------------------+
+
+.. _mlflowCreateWebhookPermissionResponse:
+
+Response Structure
+------------------
+
++----------------------+----------------------------------+---------------------------------+
+|     Field Name       |              Type                |          Description            |
++======================+==================================+=================================+
+| webhook_permission   | :ref:`mlflowWebhookPermission`   | A webhook permission object.    |
++----------------------+----------------------------------+---------------------------------+
+
+===========================
+
+.. _mlflowAuthServiceGetWebhookPermission:
+
+Get Webhook Permission
+======================
+
++----------------------------------------------+-------------+
+|                   Endpoint                   | HTTP Method |
++==============================================+=============+
+| ``2.0/mlflow/webhooks/permissions/get``      | ``GET``     |
++----------------------------------------------+-------------+
+
+.. _mlflowGetWebhookPermission:
+
+Request Structure
+-----------------
+
++------------+------------+-------------+
+| Field Name |    Type    | Description |
++============+============+=============+
+| webhook_id | ``STRING`` | Webhook id. |
++------------+------------+-------------+
+| username   | ``STRING`` | Username.   |
++------------+------------+-------------+
+
+.. _mlflowGetWebhookPermissionResponse:
+
+Response Structure
+------------------
+
++----------------------+----------------------------------+---------------------------------+
+|     Field Name       |              Type                |          Description            |
++======================+==================================+=================================+
+| webhook_permission   | :ref:`mlflowWebhookPermission`   | A webhook permission object.    |
++----------------------+----------------------------------+---------------------------------+
+
+===========================
+
+.. _mlflowAuthServiceUpdateWebhookPermission:
+
+Update Webhook Permission
+=========================
+
++----------------------------------------------+-------------+
+|                   Endpoint                   | HTTP Method |
++==============================================+=============+
+| ``2.0/mlflow/webhooks/permissions/update``   | ``PATCH``   |
++----------------------------------------------+-------------+
+
+.. _mlflowUpdateWebhookPermission:
+
+Request Structure
+-----------------
+
++------------+-------------------------+--------------------------+
+| Field Name |          Type           |       Description        |
++============+=========================+==========================+
+| webhook_id | ``STRING``              | Webhook id.              |
++------------+-------------------------+--------------------------+
+| username   | ``STRING``              | Username.                |
++------------+-------------------------+--------------------------+
+| permission | :ref:`mlflowPermission` | New permission to grant. |
++------------+-------------------------+--------------------------+
+
+===========================
+
+.. _mlflowAuthServiceDeleteWebhookPermission:
+
+Delete Webhook Permission
+=========================
+
++----------------------------------------------+-------------+
+|                   Endpoint                   | HTTP Method |
++==============================================+=============+
+| ``2.0/mlflow/webhooks/permissions/delete``   | ``DELETE``  |
++----------------------------------------------+-------------+
+
+.. _mlflowDeleteWebhookPermission:
+
+Request Structure
+-----------------
+
++------------+------------+-------------+
+| Field Name |    Type    | Description |
++============+============+=============+
+| webhook_id | ``STRING`` | Webhook id. |
++------------+------------+-------------+
+| username   | ``STRING`` | Username.   |
++------------+------------+-------------+
+
+
 .. _auth-rest-struct:
 
 Data Structures
@@ -458,7 +589,7 @@ User
 Permission
 ----------
 
-Permission of a user to an experiment or a registered model.
+Permission of a user to an experiment, registered model, or webhook.
 
 +----------------+--------------------------------------+
 |      Name      |             Description              |
@@ -501,3 +632,18 @@ RegisteredModelPermission
 +------------+-------------------------+------------------------+
 | permission | :ref:`mlflowPermission` | Permission granted.    |
 +------------+-------------------------+------------------------+
+
+.. _mlflowWebhookPermission:
+
+WebhookPermission
+-----------------
+
++------------+-------------------------+---------------------+
+| Field Name |          Type           |     Description     |
++============+=========================+=====================+
+| webhook_id | ``STRING``              | Webhook id.         |
++------------+-------------------------+---------------------+
+| user_id    | ``STRING``              | User id.            |
++------------+-------------------------+---------------------+
+| permission | :ref:`mlflowPermission` | Permission granted. |
++------------+-------------------------+---------------------+

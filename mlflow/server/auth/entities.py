@@ -357,6 +357,44 @@ class GatewayModelDefinitionPermission:
         )
 
 
+class WebhookPermission:
+    def __init__(self, webhook_id, user_id, permission):
+        self._webhook_id = webhook_id
+        self._user_id = user_id
+        self._permission = permission
+
+    @property
+    def webhook_id(self):
+        return self._webhook_id
+
+    @property
+    def user_id(self):
+        return self._user_id
+
+    @property
+    def permission(self):
+        return self._permission
+
+    @permission.setter
+    def permission(self, permission):
+        self._permission = permission
+
+    def to_json(self):
+        return {
+            "webhook_id": self.webhook_id,
+            "user_id": self.user_id,
+            "permission": self.permission,
+        }
+
+    @classmethod
+    def from_json(cls, dictionary):
+        return cls(
+            webhook_id=dictionary["webhook_id"],
+            user_id=dictionary["user_id"],
+            permission=dictionary["permission"],
+        )
+
+
 class WorkspacePermission:
     def __init__(self, workspace, user_id, permission):
         if workspace is None or user_id is None or permission is None:

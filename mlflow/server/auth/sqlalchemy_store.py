@@ -18,6 +18,7 @@ from mlflow.server.auth.db.models import (
     SqlRegisteredModelPermission,
     SqlScorerPermission,
     SqlUser,
+    SqlWebhookPermission,
     SqlWorkspacePermission,
 )
 from mlflow.server.auth.entities import (
@@ -28,6 +29,7 @@ from mlflow.server.auth.entities import (
     RegisteredModelPermission,
     ScorerPermission,
     User,
+    WebhookPermission,
     WorkspacePermission,
 )
 from mlflow.server.auth.permissions import Permission, _validate_permission, get_permission
@@ -765,4 +767,84 @@ class SqlAlchemyStore:
         with self.ManagedSessionMaker() as session:
             session.query(SqlGatewayModelDefinitionPermission).filter(
                 SqlGatewayModelDefinitionPermission.model_definition_id == model_definition_id,
+            ).delete()
+
+    def create_webhook_permission(
+        self, webhook_id: str, username: str, permission: str
+    ) -> WebhookPermission:
+        _validate_permission(permission)
+        with self.ManagedSessionMaker() as session:
+            try:
+                user = self._get_user(session, username=username)
+                perm = SqlWebhookPermission(
+                    webhook_id=webhook_id, user_id=user.id, permission=permission
+                )
+                session.add(perm)
+                session.flush()
+                return perm.to_mlflow_entity()
+            except IntegrityError as e:
+                raise MlflowException(
+                    f"Webhook permission (webhook_id={webhook_id}, username={username}) "
+                    f"already exists. Error: {e}",
+                    RESOURCE_ALREADY_EXISTS,
+                ) from e
+
+    def _get_webhook_permission(
+        self, session, webhook_id: str, username: str
+    ) -> SqlWebhookPermission:
+        try:
+            user = self._get_user(session, username=username)
+            return (
+                session.query(SqlWebhookPermission)
+                .filter(
+                    SqlWebhookPermission.webhook_id == webhook_id,
+                    SqlWebhookPermission.user_id == user.id,
+                )
+                .one()
+            )
+        except NoResultFound:
+            raise MlflowException(
+                f"Webhook permission with webhook_id={webhook_id} and "
+                f"username={username} not found",
+                RESOURCE_DOES_NOT_EXIST,
+            )
+        except MultipleResultsFound:
+            raise MlflowException(
+                f"Found multiple webhook permissions with webhook_id={webhook_id} "
+                f"and username={username}",
+                INVALID_STATE,
+            )
+
+    def get_webhook_permission(self, webhook_id: str, username: str) -> WebhookPermission:
+        with self.ManagedSessionMaker() as session:
+            return self._get_webhook_permission(session, webhook_id, username).to_mlflow_entity()
+
+    def list_webhook_permissions(self, username: str) -> list[WebhookPermission]:
+        with self.ManagedSessionMaker() as session:
+            user = self._get_user(session, username=username)
+            perms = (
+                session.query(SqlWebhookPermission)
+                .filter(SqlWebhookPermission.user_id == user.id)
+                .all()
+            )
+            return [p.to_mlflow_entity() for p in perms]
+
+    def update_webhook_permission(
+        self, webhook_id: str, username: str, permission: str
+    ) -> WebhookPermission:
+        _validate_permission(permission)
+        with self.ManagedSessionMaker() as session:
+            perm = self._get_webhook_permission(session, webhook_id, username)
+            perm.permission = permission
+            return perm.to_mlflow_entity()
+
+    def delete_webhook_permission(self, webhook_id: str, username: str):
+        with self.ManagedSessionMaker() as session:
+            perm = self._get_webhook_permission(session, webhook_id, username)
+            session.delete(perm)
+
+    def delete_webhook_permissions_for_webhook(self, webhook_id: str):
+        with self.ManagedSessionMaker() as session:
+            session.query(SqlWebhookPermission).filter(
+                SqlWebhookPermission.webhook_id == webhook_id,
             ).delete()

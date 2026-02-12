@@ -149,6 +149,18 @@ from mlflow.protos.service_pb2 import (
 from mlflow.protos.service_pb2 import (
     ListGatewaySecretInfos as ListGatewaySecretInfos,
 )
+from mlflow.protos.webhooks_pb2 import (
+    CreateWebhook as CreateWebhook,
+)
+from mlflow.protos.webhooks_pb2 import (
+    DeleteWebhook,
+    GetWebhook,
+    TestWebhook,
+    UpdateWebhook,
+)
+from mlflow.protos.webhooks_pb2 import (
+    ListWebhooks as ListWebhooks,
+)
 from mlflow.server import app
 from mlflow.server.auth.config import DEFAULT_AUTHORIZATION_FUNCTION, read_auth_config
 from mlflow.server.auth.entities import User
@@ -208,6 +220,18 @@ from mlflow.server.auth.routes import (
     UPDATE_USER_ADMIN,
     UPDATE_USER_PASSWORD,
     UPLOAD_ARTIFACT,
+)
+from mlflow.server.auth.routes import (
+    CREATE_WEBHOOK_PERMISSION as CREATE_WEBHOOK_PERMISSION,
+)
+from mlflow.server.auth.routes import (
+    DELETE_WEBHOOK_PERMISSION as DELETE_WEBHOOK_PERMISSION,
+)
+from mlflow.server.auth.routes import (
+    GET_WEBHOOK_PERMISSION as GET_WEBHOOK_PERMISSION,
+)
+from mlflow.server.auth.routes import (
+    UPDATE_WEBHOOK_PERMISSION as UPDATE_WEBHOOK_PERMISSION,
 )
 from mlflow.server.auth.sqlalchemy_store import SqlAlchemyStore
 from mlflow.server.fastapi_app import create_fastapi_app
@@ -1419,6 +1443,30 @@ def validate_gateway_proxy():
     return True
 
 
+def _get_permission_from_webhook_id() -> Permission:
+    webhook_id = _get_request_param("webhook_id")
+    username = authenticate_request().username
+    return _get_permission_from_store_or_default(
+        lambda: store.get_webhook_permission(webhook_id, username).permission
+    )
+
+
+def validate_can_read_webhook():
+    return _get_permission_from_webhook_id().can_read
+
+
+def validate_can_update_webhook():
+    return _get_permission_from_webhook_id().can_update
+
+
+def validate_can_delete_webhook():
+    return _get_permission_from_webhook_id().can_delete
+
+
+def validate_can_manage_webhook():
+    return _get_permission_from_webhook_id().can_manage
+
+
 BEFORE_REQUEST_HANDLERS = {
     # Routes for experiments
     CreateExperiment: validate_can_create_experiment,
@@ -1507,9 +1555,20 @@ BEFORE_REQUEST_HANDLERS = {
     DeleteWorkspace: sender_is_admin,
 }
 
+WEBHOOK_BEFORE_REQUEST_HANDLERS = {
+    GetWebhook: validate_can_read_webhook,
+    UpdateWebhook: validate_can_update_webhook,
+    DeleteWebhook: validate_can_delete_webhook,
+    TestWebhook: validate_can_update_webhook,
+}
+
 
 def get_before_request_handler(request_class):
     return BEFORE_REQUEST_HANDLERS.get(request_class)
+
+
+def get_webhook_before_request_handler(request_class):
+    return WEBHOOK_BEFORE_REQUEST_HANDLERS.get(request_class)
 
 
 @functools.lru_cache(maxsize=None)
@@ -1575,6 +1634,11 @@ BEFORE_REQUEST_VALIDATORS.update(
             DELETE_GATEWAY_MODEL_DEFINITION_PERMISSION,
             "DELETE",
         ): validate_can_manage_gateway_model_definition,
+        # Webhook permissions
+        (GET_WEBHOOK_PERMISSION, "GET"): validate_can_manage_webhook,
+        (CREATE_WEBHOOK_PERMISSION, "POST"): validate_can_manage_webhook,
+        (UPDATE_WEBHOOK_PERMISSION, "PATCH"): validate_can_manage_webhook,
+        (DELETE_WEBHOOK_PERMISSION, "DELETE"): validate_can_manage_webhook,
     }
 )
 
@@ -1625,6 +1689,13 @@ LOGGED_MODEL_BEFORE_REQUEST_VALIDATORS = {
     # Paths for logged models contains path parameters (e.g. /mlflow/logged-models/<model_id>)
     (_re_compile_path(http_path), method): handler
     for http_path, handler, methods in get_endpoints(get_logged_model_before_request_handler)
+    for method in methods
+}
+
+WEBHOOK_BEFORE_REQUEST_VALIDATORS = {
+    # Webhook paths contain path parameters (e.g. /mlflow/webhooks/{webhook_id})
+    (_re_compile_path(http_path), method): handler
+    for http_path, handler, methods in get_endpoints(get_webhook_before_request_handler)
     for method in methods
 }
 
@@ -1701,6 +1772,17 @@ def _find_validator(req: Request) -> Callable[[], bool] | None:
             (
                 v
                 for (pat, method), v in LOGGED_MODEL_BEFORE_REQUEST_VALIDATORS.items()
+                if pat.fullmatch(req.path) and method == req.method
+            ),
+            None,
+        )
+
+    if "/mlflow/webhooks" in req.path and "/permissions/" not in req.path:
+        # webhook routes use path parameters so we need regex matching
+        return next(
+            (
+                v
+                for (pat, method), v in WEBHOOK_BEFORE_REQUEST_VALIDATORS.items()
                 if pat.fullmatch(req.path) and method == req.method
             ),
             None,
@@ -2140,6 +2222,19 @@ def delete_gateway_model_definition_permissions_cascade(resp: Response):
         store.delete_gateway_model_definition_permissions_for_model_definition(model_definition_id)
 
 
+def set_can_manage_webhook_permission(resp: Response):
+    response_message = CreateWebhook.Response()
+    parse_dict(resp.json, response_message)
+    webhook_id = response_message.webhook.webhook_id
+    username = authenticate_request().username
+    store.create_webhook_permission(webhook_id, username, MANAGE.name)
+
+
+def delete_webhook_permissions_cascade(resp: Response):
+    if webhook_id := request.view_args.get("webhook_id"):
+        store.delete_webhook_permissions_for_webhook(webhook_id)
+
+
 AFTER_REQUEST_PATH_HANDLERS = {
     CreateExperiment: set_can_manage_experiment_permission,
     CreateRegisteredModel: set_can_manage_registered_model_permission,
@@ -2156,6 +2251,8 @@ AFTER_REQUEST_PATH_HANDLERS = {
     DeleteGatewayEndpoint: delete_gateway_endpoint_permissions_cascade,
     CreateGatewayModelDefinition: set_can_manage_gateway_model_definition_permission,
     DeleteGatewayModelDefinition: delete_gateway_model_definition_permissions_cascade,
+    CreateWebhook: set_can_manage_webhook_permission,
+    DeleteWebhook: delete_webhook_permissions_cascade,
     ListWorkspaces: filter_list_workspaces,
     DeleteWorkspace: _cleanup_workspace_permissions,
 }
@@ -2192,13 +2289,37 @@ WORKSPACE_PARAMETERIZED_AFTER_REQUEST_HANDLERS = {
     if "<" in path and "/workspaces/" in path
 }
 
+WEBHOOK_AFTER_REQUEST_HANDLERS = {
+    (_re_compile_path(http_path), method): handler
+    for http_path, handler, methods in get_endpoints(get_after_request_handler)
+    for method in methods
+    if handler is not None and "/mlflow/webhooks" in http_path
+}
+
+
+def _find_after_request_handler(req: Request):
+    if handler := AFTER_REQUEST_HANDLERS.get((req.path, req.method)):
+        return handler
+
+    if "/mlflow/webhooks" in req.path:
+        return next(
+            (
+                v
+                for (pat, method), v in WEBHOOK_AFTER_REQUEST_HANDLERS.items()
+                if pat.fullmatch(req.path) and method == req.method
+            ),
+            None,
+        )
+
+    return None
+
 
 @catch_mlflow_exception
 def _after_request(resp: Response):
     if 400 <= resp.status_code < 600:
         return resp
 
-    handler = AFTER_REQUEST_HANDLERS.get((request.path, request.method))
+    handler = _find_after_request_handler(request)
     if handler is None and "/workspaces/" in request.path:
         # Fallback to regex matching for workspace paths.
         for (path, method), candidate in WORKSPACE_PARAMETERIZED_AFTER_REQUEST_HANDLERS.items():
@@ -2609,6 +2730,40 @@ def delete_gateway_model_definition_permission():
     model_definition_id = _get_request_param("model_definition_id")
     username = _get_request_param("username")
     store.delete_gateway_model_definition_permission(model_definition_id, username)
+    return make_response({})
+
+
+@catch_mlflow_exception
+def create_webhook_permission():
+    webhook_id = _get_request_param("webhook_id")
+    username = _get_request_param("username")
+    permission = _get_request_param("permission")
+    perm = store.create_webhook_permission(webhook_id, username, permission)
+    return jsonify({"webhook_permission": perm.to_json()})
+
+
+@catch_mlflow_exception
+def get_webhook_permission():
+    webhook_id = _get_request_param("webhook_id")
+    username = _get_request_param("username")
+    perm = store.get_webhook_permission(webhook_id, username)
+    return make_response({"webhook_permission": perm.to_json()})
+
+
+@catch_mlflow_exception
+def update_webhook_permission():
+    webhook_id = _get_request_param("webhook_id")
+    username = _get_request_param("username")
+    permission = _get_request_param("permission")
+    store.update_webhook_permission(webhook_id, username, permission)
+    return make_response({})
+
+
+@catch_mlflow_exception
+def delete_webhook_permission():
+    webhook_id = _get_request_param("webhook_id")
+    username = _get_request_param("username")
+    store.delete_webhook_permission(webhook_id, username)
     return make_response({})
 
 
@@ -3198,6 +3353,27 @@ def create_app(app: Flask = app):
     app.add_url_rule(
         rule=DELETE_GATEWAY_MODEL_DEFINITION_PERMISSION,
         view_func=delete_gateway_model_definition_permission,
+        methods=["DELETE"],
+    )
+    # Webhook permission routes
+    app.add_url_rule(
+        rule=CREATE_WEBHOOK_PERMISSION,
+        view_func=create_webhook_permission,
+        methods=["POST"],
+    )
+    app.add_url_rule(
+        rule=GET_WEBHOOK_PERMISSION,
+        view_func=get_webhook_permission,
+        methods=["GET"],
+    )
+    app.add_url_rule(
+        rule=UPDATE_WEBHOOK_PERMISSION,
+        view_func=update_webhook_permission,
+        methods=["PATCH"],
+    )
+    app.add_url_rule(
+        rule=DELETE_WEBHOOK_PERMISSION,
+        view_func=delete_webhook_permission,
         methods=["DELETE"],
     )
     app.add_url_rule(

@@ -19,6 +19,7 @@ from mlflow.server.auth.entities import (
     RegisteredModelPermission,
     ScorerPermission,
     User,
+    WebhookPermission,
     WorkspacePermission,
 )
 from mlflow.utils.workspace_utils import DEFAULT_WORKSPACE_NAME
@@ -35,6 +36,7 @@ class SqlUser(Base):
     experiment_permissions = relationship("SqlExperimentPermission", backref="users")
     registered_model_permissions = relationship("SqlRegisteredModelPermission", backref="users")
     scorer_permissions = relationship("SqlScorerPermission", backref="users")
+    webhook_permissions = relationship("SqlWebhookPermission", backref="users")
 
     def to_mlflow_entity(self):
         return User(
@@ -156,6 +158,22 @@ class SqlGatewayModelDefinitionPermission(Base):
     def to_mlflow_entity(self):
         return GatewayModelDefinitionPermission(
             model_definition_id=self.model_definition_id,
+            user_id=self.user_id,
+            permission=self.permission,
+        )
+
+
+class SqlWebhookPermission(Base):
+    __tablename__ = "webhook_permissions"
+    id = Column(Integer(), primary_key=True)
+    webhook_id = Column(String(255), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    permission = Column(String(255))
+    __table_args__ = (UniqueConstraint("webhook_id", "user_id", name="unique_webhook_user"),)
+
+    def to_mlflow_entity(self):
+        return WebhookPermission(
+            webhook_id=self.webhook_id,
             user_id=self.user_id,
             permission=self.permission,
         )

@@ -111,7 +111,7 @@ The default permission for all users is `READ`. It can be changed in the [config
 
 Permissions can be granted on individual resources for each user. For workspace-wide access
 controls, see [Workspace Permissions](/self-hosting/workspaces/permissions).
-Supported resources include `Experiment`, `Registered Model`, and `Scorer`.
+Supported resources include `Experiment`, `Registered Model`, `Scorer`, and `Webhook`.
 To access an API endpoint, an user must have the required permission.
 Otherwise, a `403 Forbidden` response will be returned.
 
@@ -872,6 +872,61 @@ Required Permissions for accessing scorers:
   </tbody>
 </table>
 
+Required Permissions for accessing webhooks:
+
+:::note
+When a user creates a webhook, they automatically receive `MANAGE` permission on it. Other users can be granted access through the webhook permission management APIs.
+:::
+
+<table>
+  <thead>
+    <tr>
+      <th>API</th>
+      <th>Endpoint</th>
+      <th>Method</th>
+      <th>Required permission</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Create Webhook</td>
+      <td>`2.0/mlflow/webhooks`</td>
+      <td>`POST`</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>List Webhooks</td>
+      <td>`2.0/mlflow/webhooks`</td>
+      <td>`GET`</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>Get Webhook</td>
+      <td>`2.0/mlflow/webhooks/{webhook_id}`</td>
+      <td>`GET`</td>
+      <td>can_read</td>
+    </tr>
+    <tr>
+      <td>Update Webhook</td>
+      <td>`2.0/mlflow/webhooks/{webhook_id}`</td>
+      <td>`PATCH`</td>
+      <td>can_update</td>
+    </tr>
+    <tr>
+      <td>Delete Webhook</td>
+      <td>`2.0/mlflow/webhooks/{webhook_id}`</td>
+      <td>`DELETE`</td>
+      <td>can_delete</td>
+    </tr>
+    <tr>
+      <td>Test Webhook</td>
+      <td>`2.0/mlflow/webhooks/{webhook_id}/test`</td>
+      <td>`POST`</td>
+      <td>can_update</td>
+    </tr>
+  </tbody>
+</table>
+
 MLflow Authentication provides API endpoints to manage users and permissions.
 
 <table>
@@ -1134,6 +1189,46 @@ MLflow Authentication provides API endpoints to manage users and permissions.
       <td>`DELETE`</td>
       <td>can_manage</td>
     </tr>
+    <tr>
+      <td>
+        <Link to="/api_reference/auth/rest-api.html#create-webhook-permission" target="_blank">
+          <span>Create Webhook Permission</span>
+        </Link>
+      </td>
+      <td>`2.0/mlflow/webhooks/permissions/create`</td>
+      <td>`POST`</td>
+      <td>can_manage</td>
+    </tr>
+    <tr>
+      <td>
+        <Link to="/api_reference/auth/rest-api.html#get-webhook-permission" target="_blank">
+          <span>Get Webhook Permission</span>
+        </Link>
+      </td>
+      <td>`2.0/mlflow/webhooks/permissions/get`</td>
+      <td>`GET`</td>
+      <td>can_manage</td>
+    </tr>
+    <tr>
+      <td>
+        <Link to="/api_reference/auth/rest-api.html#update-webhook-permission" target="_blank">
+          <span>Update Webhook Permission</span>
+        </Link>
+      </td>
+      <td>`2.0/mlflow/webhooks/permissions/update`</td>
+      <td>`PATCH`</td>
+      <td>can_manage</td>
+    </tr>
+    <tr>
+      <td>
+        <Link to="/api_reference/auth/rest-api.html#delete-webhook-permission" target="_blank">
+          <span>Delete Webhook Permission</span>
+        </Link>
+      </td>
+      <td>`2.0/mlflow/webhooks/permissions/delete`</td>
+      <td>`DELETE`</td>
+      <td>can_manage</td>
+    </tr>
   </tbody>
 </table>
 
@@ -1220,6 +1315,18 @@ on that experiment, so that the creator can grant or revoke other users' access 
       <td>`2.0/mlflow/model-versions/search`</td>
       <td>`GET`</td>
       <td>Only returns registered models which the user has `READ` permission on.</td>
+    </tr>
+    <tr>
+      <td>Create Webhook</td>
+      <td>`2.0/mlflow/webhooks`</td>
+      <td>`POST`</td>
+      <td>Automatically grants `MANAGE` permission to the creator.</td>
+    </tr>
+    <tr>
+      <td>Delete Webhook</td>
+      <td>`2.0/mlflow/webhooks/{webhook_id}`</td>
+      <td>`DELETE`</td>
+      <td>Automatically deletes all associated permissions.</td>
     </tr>
   </tbody>
 </table>

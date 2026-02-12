@@ -260,6 +260,35 @@ Use <APILink fn="mlflow.client.MlflowClient.delete_webhook" >`MlflowClient.delet
 client.delete_webhook(webhook.webhook_id)
 ```
 
+## Access Control
+
+When [MLflow Authentication](/docs/self-hosting/security/basic-http-auth) is enabled, webhooks are protected by per-webhook permissions. The permission model works as follows:
+
+- **Creating a webhook**: Any authenticated user can create a webhook. The creator automatically receives `MANAGE` permission.
+- **Reading a webhook**: Requires `READ` (or higher) permission on that webhook.
+- **Updating a webhook**: Requires `EDIT` (or higher) permission on that webhook.
+- **Deleting a webhook**: Requires `MANAGE` permission on that webhook.
+- **Testing a webhook**: Requires `EDIT` (or higher) permission on that webhook.
+- **Listing webhooks**: Any authenticated user can list webhooks.
+- **Deleting a webhook**: Automatically removes all associated permissions.
+
+Users with `MANAGE` permission on a webhook can grant or revoke permissions for other users using the webhook permission management APIs:
+
+```python
+from mlflow.server import get_app_client
+
+auth_client = get_app_client("basic-auth", tracking_uri="http://localhost:5000/")
+
+# Grant READ permission on a webhook to another user
+auth_client.create_webhook_permission(
+    webhook_id="<webhook_id>",
+    username="user2",
+    permission="READ",
+)
+```
+
+For more details on the permission model, see the [Authentication documentation](/docs/self-hosting/security/basic-http-auth).
+
 ## Security
 
 ### HMAC Signature Verification
