@@ -34,6 +34,7 @@ from mlflow.entities.gateway_endpoint import (
     GatewayResourceType,
     RoutingStrategy,
 )
+from mlflow.entities.gateway_budget import GatewayBudget
 from mlflow.entities.gateway_secrets import GatewaySecretInfo
 from mlflow.entities.input_tag import InputTag
 from mlflow.entities.lifecycle_stage import LifecycleStage
@@ -137,6 +138,7 @@ __all__ = [
     "EntityAssociationType",
     "FallbackConfig",
     "FallbackStrategy",
+    "GatewayBudget",
     "GatewayEndpoint",
     "GatewayEndpointBinding",
     "GatewayEndpointModelConfig",

@@ -4779,6 +4779,80 @@ def get_endpoints(get_handler=get_handler):
     )
 
 
+@catch_mlflow_exception
+@_disable_if_artifacts_only
+def _create_gateway_budget():
+    data = request.json or {}
+    name = data.get("name")
+    amount = data.get("amount")
+    renewal_period = data.get("renewal_period")
+    if not name or amount is None or not renewal_period:
+        raise MlflowException(
+            "name, amount, and renewal_period are required",
+            error_code=INVALID_PARAMETER_VALUE,
+        )
+    budget = _get_tracking_store().create_gateway_budget(
+        name=name,
+        amount=float(amount),
+        renewal_period=renewal_period,
+        currency=data.get("currency", "USD"),
+        created_by=data.get("created_by"),
+    )
+    return jsonify({"budget": budget.to_dict()})
+
+
+@catch_mlflow_exception
+@_disable_if_artifacts_only
+def _get_gateway_budget():
+    budget_id = request.args.get("budget_id")
+    if not budget_id:
+        raise MlflowException("budget_id is required", error_code=INVALID_PARAMETER_VALUE)
+    budget = _get_tracking_store().get_gateway_budget(budget_id)
+    return jsonify({"budget": budget.to_dict()})
+
+
+@catch_mlflow_exception
+@_disable_if_artifacts_only
+def _list_gateway_budgets():
+    budgets = _get_tracking_store().list_gateway_budgets()
+    return jsonify({"budgets": [b.to_dict() for b in budgets]})
+
+
+@catch_mlflow_exception
+@_disable_if_artifacts_only
+def _update_gateway_budget():
+    data = request.json or {}
+    budget_id = data.get("budget_id")
+    if not budget_id:
+        raise MlflowException("budget_id is required", error_code=INVALID_PARAMETER_VALUE)
+    amount = data.get("amount")
+    if amount is not None:
+        amount = float(amount)
+    current_spending = data.get("current_spending")
+    if current_spending is not None:
+        current_spending = float(current_spending)
+    budget = _get_tracking_store().update_gateway_budget(
+        budget_id=budget_id,
+        name=data.get("name"),
+        amount=amount,
+        renewal_period=data.get("renewal_period"),
+        current_spending=current_spending,
+        updated_by=data.get("updated_by"),
+    )
+    return jsonify({"budget": budget.to_dict()})
+
+
+@catch_mlflow_exception
+@_disable_if_artifacts_only
+def _delete_gateway_budget():
+    data = request.json or {}
+    budget_id = data.get("budget_id")
+    if not budget_id:
+        raise MlflowException("budget_id is required", error_code=INVALID_PARAMETER_VALUE)
+    _get_tracking_store().delete_gateway_budget(budget_id)
+    return jsonify({})
+
+
 def get_gateway_endpoints():
     """Returns endpoint tuples for gateway provider/model discovery APIs and scorer invocation."""
     return [
@@ -4806,6 +4880,31 @@ def get_gateway_endpoints():
             _get_ajax_path("/mlflow/scorer/invoke", version=3),
             _invoke_scorer_handler,
             ["POST"],
+        ),
+        (
+            _get_ajax_path("/mlflow/gateway/budgets/create", version=3),
+            _create_gateway_budget,
+            ["POST"],
+        ),
+        (
+            _get_ajax_path("/mlflow/gateway/budgets/get", version=3),
+            _get_gateway_budget,
+            ["GET"],
+        ),
+        (
+            _get_ajax_path("/mlflow/gateway/budgets/list", version=3),
+            _list_gateway_budgets,
+            ["GET"],
+        ),
+        (
+            _get_ajax_path("/mlflow/gateway/budgets/update", version=3),
+            _update_gateway_budget,
+            ["POST"],
+        ),
+        (
+            _get_ajax_path("/mlflow/gateway/budgets/delete", version=3),
+            _delete_gateway_budget,
+            ["DELETE"],
         ),
     ]
 

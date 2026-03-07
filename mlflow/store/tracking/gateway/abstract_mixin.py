@@ -2,6 +2,7 @@ from typing import Any
 
 from mlflow.entities import (
     FallbackConfig,
+    GatewayBudget,
     GatewayEndpoint,
     GatewayEndpointBinding,
     GatewayEndpointModelConfig,
@@ -411,4 +412,34 @@ class GatewayStoreMixin:
             endpoint_id: ID of the endpoint.
             key: Tag key to delete.
         """
+        raise NotImplementedError(self.__class__.__name__)
+
+    def create_gateway_budget(
+        self,
+        name: str,
+        amount: float,
+        renewal_period: str,
+        currency: str = "USD",
+        created_by: str | None = None,
+    ) -> GatewayBudget:
+        raise NotImplementedError(self.__class__.__name__)
+
+    def get_gateway_budget(self, budget_id: str) -> GatewayBudget:
+        raise NotImplementedError(self.__class__.__name__)
+
+    def list_gateway_budgets(self) -> list[GatewayBudget]:
+        raise NotImplementedError(self.__class__.__name__)
+
+    def update_gateway_budget(
+        self,
+        budget_id: str,
+        name: str | None = None,
+        amount: float | None = None,
+        renewal_period: str | None = None,
+        current_spending: float | None = None,
+        updated_by: str | None = None,
+    ) -> GatewayBudget:
+        raise NotImplementedError(self.__class__.__name__)
+
+    def delete_gateway_budget(self, budget_id: str) -> None:
         raise NotImplementedError(self.__class__.__name__)

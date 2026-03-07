@@ -10,6 +10,7 @@ from sqlalchemy.orm import joinedload
 
 from mlflow.entities import (
     FallbackConfig,
+    GatewayBudget,
     GatewayEndpoint,
     GatewayEndpointBinding,
     GatewayEndpointModelConfig,
@@ -35,6 +36,7 @@ from mlflow.store.tracking._secret_cache import (
     SecretCache,
 )
 from mlflow.store.tracking.dbmodels.models import (
+    SqlGatewayBudget,
     SqlGatewayEndpoint,
     SqlGatewayEndpointBinding,
     SqlGatewayEndpointModelMapping,
@@ -1056,4 +1058,96 @@ class SqlAlchemyGatewayStoreMixin:
             session.query(SqlGatewayEndpointTag).filter(
                 SqlGatewayEndpointTag.endpoint_id == endpoint_id,
                 SqlGatewayEndpointTag.key == key,
+            ).delete()
+
+    def create_gateway_budget(
+        self,
+        name: str,
+        amount: float,
+        renewal_period: str,
+        currency: str = "USD",
+        created_by: str | None = None,
+    ) -> GatewayBudget:
+        valid_periods = {"monthly", "quarterly", "annually"}
+        if renewal_period not in valid_periods:
+            raise MlflowException(
+                f"renewal_period must be one of {valid_periods}, got '{renewal_period}'",
+                error_code=INVALID_PARAMETER_VALUE,
+            )
+        budget_id = str(uuid.uuid4())
+        now = get_current_time_millis()
+        sql_budget = SqlGatewayBudget(
+            budget_id=budget_id,
+            name=name,
+            amount=amount,
+            currency=currency,
+            renewal_period=renewal_period,
+            current_spending=0.0,
+            created_by=created_by,
+            created_at=now,
+            last_updated_by=created_by,
+            last_updated_at=now,
+        )
+        try:
+            with self.ManagedSessionMaker() as session:
+                session.add(sql_budget)
+                session.flush()
+                return sql_budget.to_mlflow_entity()
+        except IntegrityError as e:
+            raise MlflowException(
+                f"Budget with name '{name}' already exists.",
+                error_code=RESOURCE_ALREADY_EXISTS,
+            ) from e
+
+    def get_gateway_budget(self, budget_id: str) -> GatewayBudget:
+        with self.ManagedSessionMaker() as session:
+            sql_budget = self._get_entity_or_raise(
+                session, SqlGatewayBudget, {"budget_id": budget_id}, "GatewayBudget"
+            )
+            return sql_budget.to_mlflow_entity()
+
+    def list_gateway_budgets(self) -> list[GatewayBudget]:
+        with self.ManagedSessionMaker() as session:
+            budgets = session.query(SqlGatewayBudget).all()
+            return [b.to_mlflow_entity() for b in budgets]
+
+    def update_gateway_budget(
+        self,
+        budget_id: str,
+        name: str | None = None,
+        amount: float | None = None,
+        renewal_period: str | None = None,
+        current_spending: float | None = None,
+        updated_by: str | None = None,
+    ) -> GatewayBudget:
+        if renewal_period is not None:
+            valid_periods = {"monthly", "quarterly", "annually"}
+            if renewal_period not in valid_periods:
+                raise MlflowException(
+                    f"renewal_period must be one of {valid_periods}, got '{renewal_period}'",
+                    error_code=INVALID_PARAMETER_VALUE,
+                )
+        with self.ManagedSessionMaker() as session:
+            sql_budget = self._get_entity_or_raise(
+                session, SqlGatewayBudget, {"budget_id": budget_id}, "GatewayBudget"
+            )
+            if name is not None:
+                sql_budget.name = name
+            if amount is not None:
+                sql_budget.amount = amount
+            if renewal_period is not None:
+                sql_budget.renewal_period = renewal_period
+            if current_spending is not None:
+                sql_budget.current_spending = current_spending
+            sql_budget.last_updated_by = updated_by
+            sql_budget.last_updated_at = get_current_time_millis()
+            return sql_budget.to_mlflow_entity()
+
+    def delete_gateway_budget(self, budget_id: str) -> None:
+        with self.ManagedSessionMaker() as session:
+            self._get_entity_or_raise(
+                session, SqlGatewayBudget, {"budget_id": budget_id}, "GatewayBudget"
+            )
+            session.query(SqlGatewayBudget).filter(
+                SqlGatewayBudget.budget_id == budget_id
             ).delete()

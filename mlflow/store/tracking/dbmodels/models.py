@@ -40,6 +40,7 @@ from mlflow.entities import (
     FallbackConfig,
     FallbackStrategy,
     Feedback,
+    GatewayBudget,
     GatewayEndpoint,
     GatewayEndpointBinding,
     GatewayEndpointModelMapping,
@@ -2631,3 +2632,45 @@ class SqlGatewayEndpointTag(Base):
 
     def to_mlflow_entity(self):
         return GatewayEndpointTag(key=self.key, value=self.value)
+
+
+class SqlGatewayBudget(Base):
+    """
+    DB model for budgets. These are recorded in the ``budgets`` table.
+    Budgets define spending limits and track accumulated spending over renewal periods.
+    """
+
+    __tablename__ = "budgets"
+
+    budget_id = Column(String(36), nullable=False)
+    name = Column(String(255), nullable=False)
+    amount = Column(Float, nullable=False)
+    currency = Column(String(10), nullable=False, default="USD")
+    renewal_period = Column(String(50), nullable=False)
+    current_spending = Column(Float, nullable=False, default=0.0)
+    created_by = Column(String(255), nullable=True)
+    created_at = Column(BigInteger, default=get_current_time_millis, nullable=False)
+    last_updated_by = Column(String(255), nullable=True)
+    last_updated_at = Column(BigInteger, default=get_current_time_millis, nullable=False)
+
+    __table_args__ = (
+        PrimaryKeyConstraint("budget_id", name="budgets_pk"),
+        Index("unique_budget_name", "name", unique=True),
+    )
+
+    def __repr__(self):
+        return f"<SqlGatewayBudget ({self.budget_id}, {self.name})>"
+
+    def to_mlflow_entity(self):
+        return GatewayBudget(
+            budget_id=self.budget_id,
+            name=self.name,
+            amount=self.amount,
+            currency=self.currency,
+            renewal_period=self.renewal_period,
+            current_spending=self.current_spending,
+            created_at=self.created_at,
+            last_updated_at=self.last_updated_at,
+            created_by=self.created_by,
+            last_updated_by=self.last_updated_by,
+        )

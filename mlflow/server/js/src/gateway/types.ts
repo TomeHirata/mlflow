@@ -263,3 +263,53 @@ export interface SecretsConfigResponse {
   secrets_available: boolean;
   using_default_passphrase: boolean;
 }
+
+export type BudgetRenewalPeriod = 'monthly' | 'quarterly' | 'annually';
+
+export interface GatewayBudget {
+  budget_id: string;
+  name: string;
+  amount: number;
+  currency: string;
+  renewal_period: BudgetRenewalPeriod;
+  current_spending: number;
+  period_start: string;
+  period_end: string;
+  created_at: number;
+  last_updated_at: number;
+  created_by?: string;
+  last_updated_by?: string;
+}
+
+export interface CreateBudgetRequest {
+  name: string;
+  amount: number;
+  renewal_period: BudgetRenewalPeriod;
+  currency?: string;
+  created_by?: string;
+}
+
+export interface CreateBudgetResponse {
+  budget: GatewayBudget;
+}
+
+export interface GetBudgetResponse {
+  budget: GatewayBudget;
+}
+
+export interface ListBudgetsResponse {
+  budgets: GatewayBudget[];
+}
+
+export interface UpdateBudgetRequest {
+  budget_id: string;
+  name?: string;
+  amount?: number;
+  renewal_period?: BudgetRenewalPeriod;
+  current_spending?: number;
+  updated_by?: string;
+}
+
+export interface UpdateBudgetResponse {
+  budget: GatewayBudget;
+}

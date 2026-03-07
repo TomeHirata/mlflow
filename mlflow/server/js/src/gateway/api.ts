@@ -29,6 +29,12 @@ import type {
   CreateEndpointBindingResponse,
   ListEndpointBindingsResponse,
   SecretsConfigResponse,
+  CreateBudgetRequest,
+  CreateBudgetResponse,
+  GetBudgetResponse,
+  ListBudgetsResponse,
+  UpdateBudgetRequest,
+  UpdateBudgetResponse,
 } from './types';
 
 const defaultErrorHandler = async ({
@@ -295,5 +301,50 @@ export const GatewayApi = {
       relativeUrl: 'ajax-api/3.0/mlflow/gateway/secrets/config',
       error: defaultErrorHandler,
     }) as Promise<SecretsConfigResponse>;
+  },
+
+  // Budgets Management
+  createBudget: (request: CreateBudgetRequest) => {
+    return fetchEndpoint({
+      relativeUrl: 'ajax-api/3.0/mlflow/gateway/budgets/create',
+      method: 'POST',
+      body: JSON.stringify(request),
+      error: defaultErrorHandler,
+    }) as Promise<CreateBudgetResponse>;
+  },
+
+  getBudget: (budgetId: string) => {
+    const params = new URLSearchParams();
+    params.append('budget_id', budgetId);
+    const relativeUrl = ['ajax-api/3.0/mlflow/gateway/budgets/get', params.toString()].join('?');
+    return fetchEndpoint({
+      relativeUrl,
+      error: defaultErrorHandler,
+    }) as Promise<GetBudgetResponse>;
+  },
+
+  listBudgets: () => {
+    return fetchEndpoint({
+      relativeUrl: 'ajax-api/3.0/mlflow/gateway/budgets/list',
+      error: defaultErrorHandler,
+    }) as Promise<ListBudgetsResponse>;
+  },
+
+  updateBudget: (request: UpdateBudgetRequest) => {
+    return fetchEndpoint({
+      relativeUrl: 'ajax-api/3.0/mlflow/gateway/budgets/update',
+      method: 'POST',
+      body: JSON.stringify(request),
+      error: defaultErrorHandler,
+    }) as Promise<UpdateBudgetResponse>;
+  },
+
+  deleteBudget: (budgetId: string) => {
+    return fetchEndpoint({
+      relativeUrl: 'ajax-api/3.0/mlflow/gateway/budgets/delete',
+      method: 'DELETE',
+      body: JSON.stringify({ budget_id: budgetId }),
+      error: defaultErrorHandler,
+    });
   },
 };

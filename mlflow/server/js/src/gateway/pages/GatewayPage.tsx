@@ -21,6 +21,7 @@ import { GatewaySetupGuide } from '../components/SecretsSetupGuide';
 import { DefaultPassphraseBanner } from '../components/DefaultPassphraseBanner';
 import { useSecretsConfigQuery } from '../hooks/useSecretsConfigQuery';
 import ApiKeysPage from './ApiKeysPage';
+import BudgetsPage from './BudgetsPage';
 import GatewayRoutes from '../routes';
 
 const GatewayPageTitle = () => {
@@ -42,12 +43,16 @@ const GatewayPage = () => {
     if (location.pathname.includes('/api-keys')) {
       return 'api-keys';
     }
+    if (location.pathname.includes('/budgets')) {
+      return 'budgets';
+    }
     return 'endpoints';
   }, [location.pathname]);
 
   const isIndexRoute = location.pathname === '/gateway' || location.pathname === '/gateway/';
   const isApiKeysRoute = location.pathname.includes('/api-keys');
-  const isNestedRoute = !isIndexRoute && !isApiKeysRoute;
+  const isBudgetsRoute = location.pathname.includes('/budgets');
+  const isNestedRoute = !isIndexRoute && !isApiKeysRoute && !isBudgetsRoute;
 
   if (isLoadingConfig) {
     return (
@@ -135,6 +140,7 @@ const GatewayPage = () => {
                 </div>
               )}
               {isApiKeysRoute && <ApiKeysPage />}
+              {isBudgetsRoute && <BudgetsPage />}
             </>
           )}
         </div>
