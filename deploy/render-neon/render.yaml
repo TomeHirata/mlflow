@@ -12,6 +12,8 @@ services:
       - key: PORT
         value: "5000"
       - key: WORKERS
-        value: "2"
+        value: "1" # Single worker to stay within 512Mi memory limit
       - key: MLFLOW_SQLALCHEMYSTORE_POOLCLASS
         value: NullPool # Recommended for serverless Postgres (Neon)
+      - key: MLFLOW_SERVER_ENABLE_JOB_EXECUTION
+        value: "false" # Disable Huey job consumers to stay within 512Mi memory limit

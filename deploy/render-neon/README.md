@@ -31,6 +31,7 @@
 4. Add environment variables:
    - `DATABASE_URL` = your Neon connection string
    - `MLFLOW_SQLALCHEMYSTORE_POOLCLASS` = `NullPool`
+   - `MLFLOW_SERVER_ENABLE_JOB_EXECUTION` = `false`
 5. Deploy
 
 ## 3. Use it
