@@ -17,3 +17,5 @@ services:
         value: NullPool # Recommended for serverless Postgres (Neon)
       - key: MLFLOW_SERVER_ENABLE_JOB_EXECUTION
         value: "false" # Disable Huey job consumers to stay within 512Mi memory limit
+      - key: MLFLOW_SERVER_ALLOWED_HOSTS
+        value: "*.onrender.com" # Allow Render's domain for host header validation
