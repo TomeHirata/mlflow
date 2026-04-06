@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir mlflow psycopg2-binary
 
 EXPOSE 5000
 
-COPY start.sh /start.sh
+COPY deploy/render-neon/start.sh /start.sh
 RUN chmod +x /start.sh
 
 CMD ["/start.sh"]
