@@ -8,7 +8,7 @@ RUN apt-get update && \
 # Install MLflow with PostgreSQL support
 RUN pip install --no-cache-dir mlflow psycopg2-binary
 
-EXPOSE 5000
+EXPOSE 10000
 
 COPY deploy/render-neon/start.sh /start.sh
 RUN chmod +x /start.sh
