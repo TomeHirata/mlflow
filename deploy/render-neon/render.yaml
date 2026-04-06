@@ -1,0 +1,17 @@
+# Render Blueprint — deploy with "New > Blueprint" at https://dashboard.render.com
+# Docs: https://docs.render.com/infrastructure-as-code
+services:
+  - type: web
+    name: mlflow
+    runtime: docker
+    dockerfilePath: deploy/render-neon/Dockerfile
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false # You'll set this manually to your Neon connection string
+      - key: PORT
+        value: "5000"
+      - key: WORKERS
+        value: "2"
+      - key: MLFLOW_SQLALCHEMYSTORE_POOLCLASS
+        value: NullPool # Recommended for serverless Postgres (Neon)
