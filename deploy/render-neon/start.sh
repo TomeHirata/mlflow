@@ -1,10 +1,8 @@
 #!/bin/bash
 set -e
 
-# Run database migrations (creates tables if they don't exist)
-mlflow db upgrade "$DATABASE_URL"
-
-# Start MLflow tracking server
+# MLflow server automatically creates tables and runs migrations on startup
+# via SqlAlchemyStore initialization — no separate `mlflow db upgrade` needed.
 exec mlflow server \
     --backend-store-uri "$DATABASE_URL" \
     --default-artifact-root "${ARTIFACT_ROOT:-/tmp/mlflow-artifacts}" \
