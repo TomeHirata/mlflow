@@ -37,10 +37,11 @@ _PROVIDER_CONSOLIDATION = {
     "vertex_ai-code-text-models": "vertex_ai",
     "vertex_ai-embedding-models": "vertex_ai",
     "vertex_ai-vision-models": "vertex_ai",
+    "bedrock_converse": "bedrock",
 }
 
 # Providers to exclude from the catalog entirely
-_EXCLUDED_PROVIDERS = {"bedrock_converse"}
+_EXCLUDED_PROVIDERS: set[str] = set()
 
 
 def _normalize_provider(provider: str) -> str:

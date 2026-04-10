@@ -9,10 +9,10 @@
         "max_tokens": 64000
       },
       "pricing": {
-        "input_per_token": 3e-6,
-        "output_per_token": 1.5e-5,
-        "cache_read_per_token": 3e-7,
-        "cache_write_per_token": 3.75e-6
+        "input_per_token": 3e-06,
+        "output_per_token": 1.5e-05,
+        "cache_read_per_token": 3e-07,
+        "cache_write_per_token": 3.75e-06
       },
       "capabilities": {
         "function_calling": true,

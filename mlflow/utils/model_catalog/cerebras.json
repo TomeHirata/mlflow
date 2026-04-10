@@ -104,8 +104,8 @@
         "max_tokens": 128000
       },
       "pricing": {
-        "input_per_token": 2.25e-6,
-        "output_per_token": 2.75e-6
+        "input_per_token": 2.25e-06,
+        "output_per_token": 2.75e-06
       },
       "capabilities": {
         "function_calling": true,
