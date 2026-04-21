@@ -40,9 +40,6 @@ _PROVIDER_CONSOLIDATION = {
     "bedrock_converse": "bedrock",
 }
 
-# Providers to exclude from the catalog entirely
-_EXCLUDED_PROVIDERS: set[str] = set()
-
 
 def _normalize_provider(provider: str) -> str:
     if provider in _PROVIDER_CONSOLIDATION:
@@ -241,9 +238,6 @@ def convert(raw: dict[str, Any], output_dir: Path) -> dict[str, int]:
         provider = info.get("litellm_provider")
         if not provider:
             continue
-        if provider in _EXCLUDED_PROVIDERS:
-            continue
-
         provider = _normalize_provider(provider)
         model_name = key.split("/", 1)[-1]
 
