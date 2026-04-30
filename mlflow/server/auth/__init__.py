@@ -83,6 +83,8 @@ from mlflow.protos.model_registry_pb2 import (
 )
 from mlflow.protos.service_pb2 import (
     AttachModelToGatewayEndpoint,
+    BatchGetTraceInfos,
+    BatchGetTraces,
     CancelPromptOptimizationJob,
     CreateExperiment,
     CreateGatewayBudgetPolicy,
@@ -108,6 +110,9 @@ from mlflow.protos.service_pb2 import (
     DeleteRun,
     DeleteScorer,
     DeleteTag,
+    DeleteTraceTag,
+    DeleteTraces,
+    DeleteTracesV3,
     DeleteWorkspace,
     DetachModelFromGatewayEndpoint,
     FinalizeLoggedModel,
@@ -121,7 +126,12 @@ from mlflow.protos.service_pb2 import (
     GetPromptOptimizationJob,
     GetRun,
     GetScorer,
+    GetTrace,
+    GetTraceInfo,
+    GetTraceInfoV3,
     GetWorkspace,
+    LinkPromptsToTrace,
+    LinkTracesToRun,
     ListArtifacts,
     ListGatewayEndpointBindings,
     ListLoggedModelArtifacts,
@@ -139,10 +149,14 @@ from mlflow.protos.service_pb2 import (
     SearchExperiments,
     SearchLoggedModels,
     SearchPromptOptimizationJobs,
+    SearchTraces,
+    SearchTracesV3,
     SetExperimentTag,
     SetGatewayEndpointTag,
     SetLoggedModelTags,
     SetTag,
+    SetTraceTag,
+    SetTraceTagV3,
     UpdateExperiment,
     UpdateGatewayBudgetPolicy,
     UpdateGatewayEndpoint,
@@ -1738,6 +1752,147 @@ def validate_can_read_trace_artifact():
     return _get_permission_from_trace_request_id().can_read
 
 
+def _get_permission_from_trace_request_id_param() -> Permission:
+    """
+    Get permission for traces by request_id from request.json or path parameter.
+    Traces inherit permissions from their parent run/experiment.
+    """
+    request_id = _get_request_param("request_id")
+    trace = _get_tracking_store().get_trace_info(request_id)
+    experiment_id = trace.experiment_id
+    username = authenticate_request().username
+    return _get_permission_from_store_or_default(
+        lambda: store.get_experiment_permission(experiment_id, username).permission,
+        workspace_level_permission_func=lambda: _workspace_permission_for_experiment(
+            username, experiment_id
+        ),
+    )
+
+
+def _get_permission_from_trace_id_param() -> Permission:
+    """
+    Get permission for traces by trace_id from request.json or path parameter.
+    Traces inherit permissions from their parent run/experiment.
+    """
+    trace_id = _get_request_param("trace_id")
+    trace = _get_tracking_store().get_trace_info(trace_id)
+    experiment_id = trace.experiment_id
+    username = authenticate_request().username
+    return _get_permission_from_store_or_default(
+        lambda: store.get_experiment_permission(experiment_id, username).permission,
+        workspace_level_permission_func=lambda: _workspace_permission_for_experiment(
+            username, experiment_id
+        ),
+    )
+
+
+def validate_can_read_traces():
+    """Checks READ permission on traces."""
+    data = request.json or {}
+    experiment_ids = data.get("experiment_ids", [])
+    trace_ids = data.get("trace_ids", [])
+
+    username = authenticate_request().username
+    tracking_store = _get_tracking_store()
+
+    # For SearchTraces with experiment_ids
+    if experiment_ids:
+        for experiment_id in experiment_ids:
+            permission = _get_permission_from_store_or_default(
+                lambda eid=experiment_id: store.get_experiment_permission(eid, username).permission,
+                workspace_level_permission_func=lambda eid=experiment_id: _workspace_permission_for_experiment(
+                    username, eid
+                ),
+            )
+            if not permission.can_read:
+                return False
+
+    # For BatchGetTraces with trace_ids
+    if trace_ids:
+        for trace_id in trace_ids:
+            trace = tracking_store.get_trace_info(trace_id)
+            experiment_id = trace.experiment_id
+            permission = _get_permission_from_store_or_default(
+                lambda eid=experiment_id: store.get_experiment_permission(eid, username).permission,
+                workspace_level_permission_func=lambda eid=experiment_id: _workspace_permission_for_experiment(
+                    username, eid
+                ),
+            )
+            if not permission.can_read:
+                return False
+
+    # For GetTraceInfo/GetTraceInfoV3/GetTrace endpoints - try to get from request_id or trace_id
+    if not experiment_ids and not trace_ids:
+        try:
+            return _get_permission_from_trace_id_param().can_read
+        except MlflowException:
+            try:
+                return _get_permission_from_trace_request_id_param().can_read
+            except MlflowException:
+                return True
+
+    return True
+
+
+def validate_can_delete_traces():
+    """Checks DELETE permission on traces in given experiment."""
+    experiment_id = _get_request_param("experiment_id")
+
+    username = authenticate_request().username
+    permission = _get_permission_from_store_or_default(
+        lambda: store.get_experiment_permission(experiment_id, username).permission,
+        workspace_level_permission_func=lambda: _workspace_permission_for_experiment(
+            username, experiment_id
+        ),
+    )
+    return permission.can_delete
+
+
+def validate_can_update_traces():
+    """Checks UPDATE permission on traces."""
+    username = authenticate_request().username
+    tracking_store = _get_tracking_store()
+
+    # Try different parameter sources
+    data = request.json or {}
+
+    # For SetTraceTag/DeleteTraceTag - try trace_id or request_id
+    try:
+        trace_id = _get_request_param("trace_id")
+        trace = tracking_store.get_trace_info(trace_id)
+        experiment_id = trace.experiment_id
+    except MlflowException:
+        try:
+            request_id = _get_request_param("request_id")
+            trace = tracking_store.get_trace_info(request_id)
+            experiment_id = trace.experiment_id
+        except MlflowException:
+            # For LinkTracesToRun with run_id
+            try:
+                run_id = _get_request_param("run_id")
+                run = tracking_store.get_run(run_id)
+                experiment_id = run.info.experiment_id
+            except MlflowException:
+                # For LinkPromptsToTrace with trace_id in body
+                trace_id = data.get("trace_id")
+                if trace_id:
+                    trace = tracking_store.get_trace_info(trace_id)
+                    experiment_id = trace.experiment_id
+                else:
+                    raise MlflowException(
+                        "Unable to determine experiment from request parameters",
+                        INVALID_PARAMETER_VALUE,
+                    )
+
+    permission = _get_permission_from_store_or_default(
+        lambda: store.get_experiment_permission(experiment_id, username).permission,
+        workspace_level_permission_func=lambda: _workspace_permission_for_experiment(
+            username, experiment_id
+        ),
+    )
+    return permission.can_update
+
+
 def validate_can_read_metric_history_bulk(run_ids=None):
     """Checks READ permission on all requested runs.
 
@@ -1928,6 +2083,21 @@ BEFORE_REQUEST_HANDLERS = {
     SearchPromptOptimizationJobs: validate_can_read_experiment,
     CancelPromptOptimizationJob: validate_can_update_prompt_optimization_job,
     DeletePromptOptimizationJob: validate_can_delete_prompt_optimization_job,
+    # Routes for traces
+    GetTraceInfo: validate_can_read_traces,
+    GetTraceInfoV3: validate_can_read_traces,
+    GetTrace: validate_can_read_traces,
+    SearchTraces: validate_can_read_traces,
+    SearchTracesV3: validate_can_read_traces,
+    BatchGetTraces: validate_can_read_traces,
+    BatchGetTraceInfos: validate_can_read_traces,
+    DeleteTraces: validate_can_delete_traces,
+    DeleteTracesV3: validate_can_delete_traces,
+    SetTraceTag: validate_can_update_traces,
+    SetTraceTagV3: validate_can_update_traces,
+    DeleteTraceTag: validate_can_update_traces,
+    LinkTracesToRun: validate_can_update_traces,
+    LinkPromptsToTrace: validate_can_update_traces,
     # Workspace routes
     ListWorkspaces: None,
     CreateWorkspace: sender_is_admin,
